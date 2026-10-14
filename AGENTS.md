@@ -157,7 +157,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 
 ### Commands
 - Install: `python -m pip install -r requirements-dev.txt`
-- Build (Windows): `./build_windows.ps1` builds and verifies `dist\DynamicsControlLab.exe`
+- Build (Windows): `./build_windows.ps1` builds and verifies the one-folder app `dist\DynamicsControlLab\` and packs it into `dist\DynamicsControlLab.zip`
 - Test (all): `python -m unittest discover -s tests -v`; on Linux without a display prefix `xvfb-run -a`
 - Test (single file): `python -m unittest discover -s tests -p test_calculations.py -v` (tests import sibling test modules, so keep `-s tests`)
 - Source smoke and performance checks: `python main.py --smoke-test build/source-check.json`, `python main.py --performance-check build/source-performance.json`

@@ -5,7 +5,7 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller завершил сборку с кодом $LASTEXITCODE."
 }
 
-$exe = (Resolve-Path "dist\DynamicsControlLab.exe").Path
+$exe = (Resolve-Path "dist\DynamicsControlLab\DynamicsControlLab.exe").Path
 
 # Time from process start to a constructed window, first (cold) and second launch.
 function Measure-Startup([string]$Name) {
@@ -27,7 +27,7 @@ $startup | ConvertTo-Json | Set-Content -LiteralPath "build\startup.json" -Encod
 Write-Host "Запуск EXE до готового окна: первый $($startup.first_launch_to_window_s) с, повторный $($startup.second_launch_to_window_s) с."
 
 $taskOutput = Join-Path (Get-Location) "build\release-check.json"
-$taskProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab.exe").Path -ArgumentList @("--smoke-test", ('"' + $taskOutput + '"')) -WindowStyle Hidden -PassThru
+$taskProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab\DynamicsControlLab.exe").Path -ArgumentList @("--smoke-test", ('"' + $taskOutput + '"')) -WindowStyle Hidden -PassThru
 if (-not $taskProcess.WaitForExit(60000)) {
     Stop-Process -Id $taskProcess.Id
     throw "Проверка приложения превысила 60 секунд."
@@ -43,7 +43,7 @@ if ($taskReport.status -ne "passed" -or -not $taskReport.frozen) {
 }
 
 $performanceOutput = Join-Path (Get-Location) "build\performance-check.json"
-$performanceProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab.exe").Path -ArgumentList @("--performance-check", ('"' + $performanceOutput + '"')) -WindowStyle Hidden -PassThru
+$performanceProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab\DynamicsControlLab.exe").Path -ArgumentList @("--performance-check", ('"' + $performanceOutput + '"')) -WindowStyle Hidden -PassThru
 if (-not $performanceProcess.WaitForExit(90000)) {
     Stop-Process -Id $performanceProcess.Id
     throw "Измерение производительности превысило 90 секунд."
@@ -54,4 +54,5 @@ if ($performanceProcess.ExitCode -ne 0 -or $performanceReport.status -ne "passed
     throw "Измерение производительности EXE завершилось с ошибкой."
 }
 
-Write-Host "Готово: dist\DynamicsControlLab.exe"
+Compress-Archive -Path "dist\DynamicsControlLab" -DestinationPath "dist\DynamicsControlLab.zip" -Force
+Write-Host "Готово: dist\DynamicsControlLab.zip"

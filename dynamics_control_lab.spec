@@ -34,19 +34,17 @@ analysis = Analysis(
 )
 pyz = PYZ(analysis.pure)
 
+# One folder starts about twice as fast as a one-file EXE, which unpacks itself on every launch.
 executable = EXE(
     pyz,
     analysis.scripts,
-    analysis.binaries,
-    analysis.datas,
     [],
+    exclude_binaries=True,
     name="DynamicsControlLab",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    upx_exclude=[],
-    runtime_tmpdir=None,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -54,3 +52,5 @@ executable = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+collected = COLLECT(executable, analysis.binaries, analysis.datas, strip=False, upx=True, upx_exclude=[],
+                    name="DynamicsControlLab")

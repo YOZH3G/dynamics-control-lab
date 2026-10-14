@@ -52,7 +52,7 @@ jobs:
           name: DynamicsControlLab-${{ github.sha }}
           if-no-files-found: error
           path: |
-            dist/DynamicsControlLab.exe
+            dist/DynamicsControlLab.zip
             build/release-check.json
             build/performance-check.json
             build/startup.json
