@@ -145,27 +145,27 @@ class AnalysisPanel:
         self.map_derivative_entry.configure(state="normal" if controller_type == "PID" else "disabled")
 
     def read_inputs(self):
-        if not (self.app.component_enabled.get() or self.app.flow_enabled.get()):
+        if not (self.app.absorber_form.component_enabled.get() or self.app.absorber_form.flow_enabled.get()):
             raise ValueError("Включите хотя бы одно возмущение.")
-        component_fraction = self.app._read_fraction(
-            self.app.component_enabled.get(), self.app.component_value, self.app.component_error, self.app.component_entry
+        component_fraction = self.app.absorber_form.read_fraction(
+            self.app.absorber_form.component_enabled.get(), self.app.absorber_form.component_value, self.app.absorber_form.component_error, self.app.absorber_form.component_entry
         )
-        flow_fraction = self.app._read_fraction(
-            self.app.flow_enabled.get(), self.app.flow_value, self.app.flow_error, self.app.flow_entry
+        flow_fraction = self.app.absorber_form.read_fraction(
+            self.app.absorber_form.flow_enabled.get(), self.app.absorber_form.flow_value, self.app.absorber_form.flow_error, self.app.absorber_form.flow_entry
         )
-        return component_fraction, flow_fraction, self.app._read_dynamic_parameters()
+        return component_fraction, flow_fraction, self.app.absorber_form.read_dynamic_parameters()
 
     def calculate_sensitivity(self):
-        self.app._clear_errors()
+        self.app.absorber_form.clear_errors()
         try:
             component_fraction, flow_fraction, dynamics = self.read_inputs()
-            controller = self.app._read_controller_parameters()
+            controller = self.app.absorber_form.read_controller_parameters()
             values = self.parse_sensitivity_values()
         except ValueError as error:
             self.sensitivity_summary.set(str(error))
             self.app._set_status("Исправьте параметры анализа чувствительности", error=True)
             return
-        chain, model = self.app.chain, self.app.model_values.copy()
+        chain, model = self.app.absorber_form.chain, self.app.absorber_form.model_values.copy()
         parameter = self.sensitivity_parameter.get()
         self.app._start_task("Анализ чувствительности", lambda cancel, progress: sensitivity_runs(
             chain, model, component_fraction, flow_fraction, dynamics, controller, parameter, values,
@@ -187,7 +187,7 @@ class AnalysisPanel:
         parser = (
             parse_positive_number if parameter == "Постоянная времени T"
             else parse_nonnegative_number if parameter == "Запаздывание L"
-            else lambda value: parse_disturbance(value, self.app._disturbance_units)
+            else lambda value: parse_disturbance(value, self.app.absorber_form._disturbance_units)
         )
         self.sensitivity_values_entry.configure(style="TEntry")
         try:
@@ -198,7 +198,7 @@ class AnalysisPanel:
         return values
 
     def calculate_map(self):
-        self.app._clear_errors()
+        self.app.absorber_form.clear_errors()
         try:
             component_fraction, flow_fraction, dynamics = self.read_inputs()
             grid_size = self.parse_grid_size()
@@ -220,14 +220,14 @@ class AnalysisPanel:
                 parse_nonnegative_number(self.map_derivative_time.get())
                 if controller_type == "PID" else 0.0
             )
-            control_limit = parse_percentage(self.app.control_limit.get())
-            setpoint = parse_percentage(self.app.setpoint.get())
-            extensions = extensions_from_form({key: value.get() for key, value in self.app.extension_values.items()}, controller_type)
+            control_limit = parse_percentage(self.app.absorber_form.control_limit.get())
+            setpoint = parse_percentage(self.app.absorber_form.setpoint.get())
+            extensions = extensions_from_form({key: value.get() for key, value in self.app.absorber_form.extension_values.items()}, controller_type)
         except ValueError as error:
             self.map_summary.set(str(error))
             self.app._set_status("Исправьте параметры карты настроек", error=True)
             return
-        chain, model = self.app.chain, self.app.model_values.copy()
+        chain, model = self.app.absorber_form.chain, self.app.absorber_form.model_values.copy()
         self.app._start_task("Карта настроек", lambda cancel, progress: controller_setting_map(
             chain, model, component_fraction, flow_fraction, dynamics,
             controller_type, gains, integral_times, control_limit, setpoint,
@@ -388,14 +388,14 @@ class AnalysisPanel:
         if self.map_data is None or self.map_selection is None:
             return
         row, column = self.map_selection
-        self.app.controller_type.set(self.map_data["controller_type"])
-        self.app._set_controller_mode(True)
-        self.app.proportional_gain.set(self.app._format_number(self.map_data["gains"][column]))
+        self.app.absorber_form.controller_type.set(self.map_data["controller_type"])
+        self.app.absorber_form.set_controller_mode(True)
+        self.app.absorber_form.proportional_gain.set(self.app._format_number(self.map_data["gains"][column]))
         integral_time = self.map_data["integral_times"][row]
         if integral_time is not None:
-            self.app.integral_time.set(self.app._format_number(integral_time))
+            self.app.absorber_form.integral_time.set(self.app._format_number(integral_time))
         if self.map_data["derivative_time"] is not None:
-            self.app.derivative_time.set(self.app._format_number(self.map_data["derivative_time"]))
-        self.app._update_controller_type()
+            self.app.absorber_form.derivative_time.set(self.app._format_number(self.map_data["derivative_time"]))
+        self.app.absorber_form.update_controller_type()
         self.app._show_page("controller")
         self.app._calculate()

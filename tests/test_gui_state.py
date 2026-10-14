@@ -185,11 +185,11 @@ class GuiStateTests(unittest.TestCase):
         page.load_path(Path("data/identification_step.csv"))
         page.metadata["input_role"].set("η, доля"); page.metadata["output_role"].set("Xна, доля")
         page.calculate(); self.wait_for_task()
-        app.chain = RICH_ABSORBENT
-        app.controller_enabled.set(True); app.controller_type.set("PI")
-        app.setpoint.set("30.5"); app.control_limit.set("20")
-        app.simulation_duration.set("100"); app.time_constant.set("8"); app.delay.set("0")
-        app.component_enabled.set(False); app.flow_enabled.set(False)
+        app.absorber_form.chain = RICH_ABSORBENT
+        app.absorber_form.controller_enabled.set(True); app.absorber_form.controller_type.set("PI")
+        app.absorber_form.setpoint.set("30.5"); app.absorber_form.control_limit.set("20")
+        app.absorber_form.simulation_duration.set("100"); app.absorber_form.time_constant.set("8"); app.absorber_form.delay.set("0")
+        app.absorber_form.component_enabled.set(False); app.absorber_form.flow_enabled.set(False)
         for key, value in dict(k_errors="0;20", t_errors="0", l_errors="0").items():
             page.absorber_sensitivity.fields[key].set(value)
         app._show_page("identification")
@@ -241,7 +241,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertTrue(page.result_current)
         self.assertIn("Снимок прежних", s.summary.get())
         s.fields["iae"].set(snapshot["absorber_sensitivity"]["fields"]["iae"])
-        self.app.time_constant.set("9")
+        self.app.absorber_form.time_constant.set("9")
         self.assertTrue(s.capture()["stale"])
         stale_report = Path(self.directory.name)/"stale.html"
         write_experiment_report(stale_report, page.capture(), "html")
@@ -673,14 +673,14 @@ class GuiStateTests(unittest.TestCase):
         import numpy as np
         original = self.app.last_calculation["final_response"].copy()
         self.app.assignment_panel.student_conclusion.set("Восстановлено после запуска")
-        self.app.component_value.set("-")
+        self.app.absorber_form.component_value.set("-")
         self.app._close_application()
         self.root = tk.Tk()
         self.root.withdraw()
         with patch.object(main, "ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
         self.assertEqual(self.app.assignment_panel.student_conclusion.get(), "Восстановлено после запуска")
-        self.assertEqual(self.app.component_value.get(), "-")
+        self.assertEqual(self.app.absorber_form.component_value.get(), "-")
         np.testing.assert_array_equal(self.app.last_calculation["final_response"], original)
         self.assertIn("автосохранения", self.app.status_text.get())
 
@@ -701,7 +701,7 @@ class GuiStateTests(unittest.TestCase):
         app.assignment_panel.learning_step = 4
         app.assignment_panel.student_name.set("Студент")
         app.assignment_panel.student_conclusion.set("Проверен баланс")
-        app.component_value.set("-")
+        app.absorber_form.component_value.set("-")
         app.assignment_panel.predicted_steady.set("26,")
         path = Path(self.directory.name) / "laboratory.json"
         write_session(path, app.comparison_page.runs, app.comparison_page.counter, app._capture_laboratory())
@@ -714,7 +714,7 @@ class GuiStateTests(unittest.TestCase):
         app._restore_laboratory(laboratory, result)
         np.testing.assert_array_equal(app.last_calculation["final_response"], original["final_response"])
         np.testing.assert_array_equal(app.last_calculation["time"], original["time"])
-        self.assertEqual(app.component_value.get(), "-")
+        self.assertEqual(app.absorber_form.component_value.get(), "-")
         self.assertEqual(app.assignment_panel.predicted_steady.get(), "26,")
         self.assertEqual(app.assignment_panel.assignment_attempts, 1)
         self.assertEqual(app.assignment_panel.assignment_evaluation, original["evaluation"])
@@ -816,9 +816,9 @@ class GuiStateTests(unittest.TestCase):
             return original
         self.app._start_task("Проверка", slow_result, lambda result: self.fail("Stale result applied"))
         task = self.app._task
-        self.app.component_value.set(self.app.component_value.get().replace(".", ",") + "00")
+        self.app.absorber_form.component_value.set(self.app.absorber_form.component_value.get().replace(".", ",") + "00")
         self.assertIs(self.app._task, task)
-        self.app.component_value.set("0.2")
+        self.app.absorber_form.component_value.set("0.2")
         self.assertIsNone(self.app._task)
         self.assertTrue(task.cancel.is_set())
         release.set()
@@ -850,13 +850,13 @@ class GuiStateTests(unittest.TestCase):
         app = self.app
         caption = "Применён: Снижение состава на 15% · вариант 5."
         app.active_scenario.set(caption)
-        app.controller_type.set("PID")
-        app.proportional_gain.set("19")
-        app.integral_time.set("3")
+        app.absorber_form.controller_type.set("PID")
+        app.absorber_form.proportional_gain.set("19")
+        app.absorber_form.integral_time.set("3")
         app._restore_experiment_defaults()
-        self.assertEqual(app.controller_type.get(), "PI")
-        self.assertEqual(app.proportional_gain.get(), "2")
-        self.assertEqual(app.integral_time.get(), "20")
+        self.assertEqual(app.absorber_form.controller_type.get(), "PI")
+        self.assertEqual(app.absorber_form.proportional_gain.get(), "2")
+        self.assertEqual(app.absorber_form.integral_time.get(), "20")
         self.assertEqual(app.active_scenario.get(), caption)
 
     def test_new_task_wins_even_when_old_worker_finishes_later(self):
@@ -952,24 +952,24 @@ class GuiStateTests(unittest.TestCase):
     def test_units_preserve_precision_snapshot_and_physical_result(self):
         import numpy as np
         app = self.app
-        app.component_value.set("0.12345678901234567")
+        app.absorber_form.component_value.set("0.12345678901234567")
         app._calculate()
         self.wait_for_task()
         original = app.last_calculation["final_response"].copy()
-        app.disturbance_units.set("%")
-        app._switch_disturbance_units()
-        self.assertEqual(app.component_value.get(), "12.345678901234567")
+        app.absorber_form.disturbance_units.set("%")
+        app.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber_form.component_value.get(), "12.345678901234567")
         self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
         app._calculate()
         self.wait_for_task()
         np.testing.assert_array_equal(app.last_calculation["final_response"], original)
         saved = app._capture_input_state()
-        app.disturbance_units.set("Доля")
-        app._switch_disturbance_units()
-        self.assertEqual(app.component_value.get(), "0.12345678901234567")
+        app.absorber_form.disturbance_units.set("Доля")
+        app.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber_form.component_value.get(), "0.12345678901234567")
         app._restore_input_state(saved, preserve_result=True)
-        self.assertEqual(app._disturbance_units, "percent")
-        self.assertEqual(app.component_value.get(), "12.345678901234567")
+        self.assertEqual(app.absorber_form._disturbance_units, "percent")
+        self.assertEqual(app.absorber_form.component_value.get(), "12.345678901234567")
         self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
 
     def test_unit_switch_preserves_running_task_and_rejects_invalid_draft(self):
@@ -978,15 +978,15 @@ class GuiStateTests(unittest.TestCase):
         app = self.app
         app._start_task("test", lambda cancel, progress: release.wait(2), lambda result: None)
         task = app._task
-        app.disturbance_units.set("%")
-        app._switch_disturbance_units()
+        app.absorber_form.disturbance_units.set("%")
+        app.absorber_form.switch_disturbance_units()
         self.assertIs(app._task, task)
-        app.component_value.set("-")
-        app.disturbance_units.set("Доля")
-        app._switch_disturbance_units()
-        self.assertEqual(app._disturbance_units, "percent")
-        self.assertEqual(app.component_value.get(), "-")
-        self.assertTrue(app.component_error.get())
+        app.absorber_form.component_value.set("-")
+        app.absorber_form.disturbance_units.set("Доля")
+        app.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber_form._disturbance_units, "percent")
+        self.assertEqual(app.absorber_form.component_value.get(), "-")
+        self.assertTrue(app.absorber_form.component_error.get())
         release.set()
 
     def test_sensitivity_units_change_without_changing_values(self):
@@ -994,8 +994,8 @@ class GuiStateTests(unittest.TestCase):
         app.analysis_panel.sensitivity_parameter.set("Возмущение состава")
         app.analysis_panel.sensitivity_values.set("0,1; 0,25")
         self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
-        app.disturbance_units.set("%")
-        app._switch_disturbance_units()
+        app.absorber_form.disturbance_units.set("%")
+        app.absorber_form.switch_disturbance_units()
         self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
         self.assertEqual(app.analysis_panel.sensitivity_values.get(), "1E+1; 25")
 
@@ -1023,22 +1023,22 @@ class GuiStateTests(unittest.TestCase):
             self.directory.cleanup()
 
     def test_numeric_equivalence_and_inactive_fields_do_not_make_result_stale(self):
-        self.app.component_value.set("-0,1500")
-        self.app.integral_time.set("999")
+        self.app.absorber_form.component_value.set("-0,1500")
+        self.app.absorber_form.integral_time.set("999")
         self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.component_value.set("-0.2")
+        self.app.absorber_form.component_value.set("-0.2")
         self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.component_value.set("-0.15")
+        self.app.absorber_form.component_value.set("-0.15")
         self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
 
     def test_chain_and_controller_changes_keep_the_same_calculation_snapshot(self):
         result = self.app.last_calculation
         snapshot = copy.deepcopy(result["input_state"])
-        self.app._select_chain("lean_gas")
+        self.app.absorber_form.select_chain("lean_gas")
         self.assertIs(self.app.last_calculation, result)
         self.assertEqual(result["chain"], RICH_ABSORBENT)
         self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app._set_controller_mode(True)
+        self.app.absorber_form.set_controller_mode(True)
         self.assertIs(self.app.last_calculation, result)
         self.assertEqual(result["input_state"], snapshot)
         self.app.comparison_page.add_current()
@@ -1070,20 +1070,20 @@ class GuiStateTests(unittest.TestCase):
     def test_sensor_settings_round_trip_and_teacher_dependent_fields(self):
         import numpy as np
         app = self.app
-        app._set_controller_mode(True)
-        app.controller_type.set("PID")
-        app.extension_values["noise_std"].set("0,05")
-        app.extension_values["noise_seed"].set("2026")
-        app.extension_values["derivative_filter_time"].set("0,5")
-        app.extension_values["actuator_time_constant"].set("2")
-        app.extension_values["actuator_rate_limit"].set("2")
+        app.absorber_form.set_controller_mode(True)
+        app.absorber_form.controller_type.set("PID")
+        app.absorber_form.extension_values["noise_std"].set("0,05")
+        app.absorber_form.extension_values["noise_seed"].set("2026")
+        app.absorber_form.extension_values["derivative_filter_time"].set("0,5")
+        app.absorber_form.extension_values["actuator_time_constant"].set("2")
+        app.absorber_form.extension_values["actuator_rate_limit"].set("2")
         app._calculate()
         self.wait_for_task()
         result = app.last_calculation
         restored = restore_calculation(app._capture_laboratory()["last_calculation"])
         for key in ("control", "commanded_control", "measurement", "final_response"):
             np.testing.assert_array_equal(restored[key], result[key])
-        app.extension_values["actuator_time_constant"].set("3")
+        app.absorber_form.extension_values["actuator_time_constant"].set("3")
         self.assertIn("Параметры изменены", app.export_panel.export_summary.get())
         editor = ScenarioEditorDialog(self.root, self.store, lambda *_: None,
                                       lambda *_: None, lambda: None, main.BACKGROUND)
@@ -1105,7 +1105,7 @@ class GuiStateTests(unittest.TestCase):
         self.root.geometry("1366x1000+0+0")
         self.root.tk.call("tk", "scaling", 96 / 72)
         self.root.update()
-        app._set_controller_mode(True)
+        app.absorber_form.set_controller_mode(True)
         app._calculate()
         self.wait_for_task()
         app._set_chart_mode("both")
@@ -1128,17 +1128,17 @@ class GuiStateTests(unittest.TestCase):
         self.wait_for_task()
         self.assertIsNotNone(page.result)
         self.assertAlmostEqual(page.result["time_constant"], 8, delta=.08)
-        original_model = app.model_values.copy()
-        original_gain = app.proportional_gain.get()
+        original_model = app.absorber_form.model_values.copy()
+        original_gain = app.absorber_form.proportional_gain.get()
         app.time_cursor.move(SimpleNamespace(inaxes=app.response_axis, xdata=20))
         self.assertTrue(all(readout.get().startswith("t = 20 с") for readout in app.chart_readouts))
         np.testing.assert_array_equal(page.result["residual"], page.result["output"] - page.result["model"])
         page.apply()
-        self.assertEqual(app.model_values, original_model)
-        self.assertEqual(app.proportional_gain.get(), original_gain)
-        self.assertAlmostEqual(float(app.delay.get()), 2, delta=.2)
+        self.assertEqual(app.absorber_form.model_values, original_model)
+        self.assertEqual(app.absorber_form.proportional_gain.get(), original_gain)
+        self.assertAlmostEqual(float(app.absorber_form.delay.get()), 2, delta=.2)
         self.assertEqual(app.current_page, "controller")
-        app._set_controller_mode(True)
+        app.absorber_form.set_controller_mode(True)
         app._calculate()
         self.wait_for_task()
         for mode, ylabel, axes in (("Только ошибка", "Ошибка e(t), п.п.", 1),
@@ -1189,9 +1189,9 @@ class GuiStateTests(unittest.TestCase):
 
     def test_model_edits_keep_the_calculation_and_report_uses_its_graphs(self):
         result = self.app.last_calculation
-        self.app._open_model_parameters()
-        self.app.model_dialog._variables["eta"].set("70")
-        self.app.model_dialog._apply_values()
+        self.app.absorber_form.open_model_parameters()
+        self.app.absorber_form.model_dialog._variables["eta"].set("70")
+        self.app.absorber_form.model_dialog._apply_values()
         self.assertIs(self.app.last_calculation, result)
         self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
         self.app.comparison_page.add_current()

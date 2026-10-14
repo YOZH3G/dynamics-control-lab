@@ -79,14 +79,14 @@ class AbsorberSensitivity(ttk.Frame):
         page, app = self.page, self.page.app
         if not page.result_current or page.metadata["input_role"].get() != "η, доля":
             page.summary.set("Нужна актуальная оценка CSV с подтверждённым входом η, доля."); return
-        expected_role = "Xог, доля" if app.chain == "lean_gas" else "Xна, доля"
+        expected_role = "Xог, доля" if app.absorber_form.chain == "lean_gas" else "Xна, доля"
         if page.metadata["output_role"].get() != expected_role:
             page.summary.set("Выход CSV должен совпадать с выбранной цепью абсорбера: " + expected_role); return
         try:
-            request = dict(chain=app.chain, parameters=copy.deepcopy(app.model_values),
-                component=app._read_fraction(app.component_enabled.get(), app.component_value, app.component_error, app.component_entry),
-                flow=app._read_fraction(app.flow_enabled.get(), app.flow_value, app.flow_error, app.flow_entry),
-                dynamics=app._read_dynamic_parameters(), controller=app._read_controller_parameters())
+            request = dict(chain=app.absorber_form.chain, parameters=copy.deepcopy(app.absorber_form.model_values),
+                component=app.absorber_form.read_fraction(app.absorber_form.component_enabled.get(), app.absorber_form.component_value, app.absorber_form.component_error, app.absorber_form.component_entry),
+                flow=app.absorber_form.read_fraction(app.absorber_form.flow_enabled.get(), app.absorber_form.flow_value, app.absorber_form.flow_error, app.absorber_form.flow_entry),
+                dynamics=app.absorber_form.read_dynamic_parameters(), controller=app.absorber_form.read_controller_parameters())
             if request["controller"] is None or request["controller"]["controller_type"] != "PI":
                 raise ValueError("Включите PI в настройках абсорбера и задайте концентрацию, отличную от исходной.")
             fields = self.configuration()

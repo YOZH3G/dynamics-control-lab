@@ -14,13 +14,8 @@ APP_NAME = "Лаборатория динамики и управления"
 APP_VERSION = "1.12.1"
 
 from app.calculations import (
-    CONTROLLER_TYPES,
     DEFAULT_MODEL_VALUES,
     absorption_balance,
-    IMPULSE,
-    RAMP,
-    RECTANGLE,
-    STEP,
 )
 from app.comparison import MAX_COMPARISON_RUNS
 from app.background_tasks import BackgroundTask, CalculationCancelled
@@ -28,15 +23,15 @@ from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
 from app.settings_store import SettingsStore
 from app.plotting import adaptive_legend
-from app.simulation import LEAN_GAS, RICH_ABSORBENT, tune_balanced_controller
-from app.controller_extensions import EXTENSION_DEFAULTS, EXTENSION_FIELDS, extensions_from_form
-from app.validation import parse_disturbance, parse_nonnegative_number, parse_positive_number, parse_percentage
-from ui.model_dialog import ModelParametersDialog
+from app.simulation import LEAN_GAS, RICH_ABSORBENT
+from app.controller_extensions import EXTENSION_DEFAULTS, EXTENSION_FIELDS
+from app.validation import parse_positive_number
 from ui.identification_page import IdentificationPage
 from ui.tank_page import TankPage
 from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
+from ui.absorber_form import AbsorberForm
 from ui.analysis_panel import AnalysisPanel
 from ui.assignment_panel import AssignmentPanel
 from ui.export_panel import ExportPanel
@@ -57,8 +52,6 @@ from ui.theme import (
 )
 from ui.window_geometry import fit_geometry, work_area
 from ui.ui_helpers import (
-    DisturbanceTooltip,
-    FormulaPanel,
     ScrollablePage,
     TextTooltip,
     create_icon,
@@ -66,13 +59,6 @@ from ui.ui_helpers import (
 )
 
 
-
-DISTURBANCE_TYPES = {
-    "Ступенчатое": STEP,
-    "Импульсное": IMPULSE,
-    "Временное прямоугольное": RECTANGLE,
-    "Плавно нарастающее": RAMP,
-}
 
 CURVE_STYLES = {
     "Исходный режим": ("#667085", "--"),
@@ -88,9 +74,7 @@ class DynamicsControlApp(ttk.Frame):
     def __init__(self, root, scenario_path=None):
         super().__init__(root, style="App.TFrame")
         self.root = root
-        self.chain = LEAN_GAS
-        self.model_values = DEFAULT_MODEL_VALUES.copy()
-        self.model_dialog = None
+        self.absorber_form = AbsorberForm(self)
         self.scenario_library = ScenarioLibrary(
             self, ScenarioStore(scenario_path) if scenario_path is not None else ScenarioStore()
         )
@@ -103,45 +87,9 @@ class DynamicsControlApp(ttk.Frame):
         self.model_results = {}
         self.nav_buttons = {}
 
-        self.component_enabled = tk.BooleanVar(value=False)
-        self.flow_enabled = tk.BooleanVar(value=False)
-        self.disturbance_units = tk.StringVar(value="Доля")
-        self._disturbance_units = "fraction"
-        self._changing_units = False
-        self.disturbance_units_hint = tk.StringVar(value="Доля: +0.10 = +10%, −0.10 = −10%. Диапазон: −0.99…9.99")
-        self.component_value = tk.StringVar()
-        self.flow_value = tk.StringVar()
-        self.disturbance_type = tk.StringVar(value="Ступенчатое")
-        self.dynamics_summary = tk.StringVar()
         self.page_title = tk.StringVar(value="Возмущения")
         self.topbar_context = tk.StringVar(value="Свободный расчёт · без регулятора")
         self.calculate_button_text = tk.StringVar(value="Рассчитать")
-        self.start_time = tk.StringVar(value="10")
-        self.simulation_duration = tk.StringVar(value="100")
-        self.effect_duration = tk.StringVar(value="10")
-        self.time_constant = tk.StringVar(value="10")
-        self.delay = tk.StringVar(value="2")
-        self.extension_values = {key: tk.StringVar(value="0") for key in EXTENSION_DEFAULTS}
-        self.extension_entries = {}
-        self.controller_enabled = tk.BooleanVar(value=False)
-        self.controller_type = tk.StringVar(value="PI")
-        self.proportional_gain = tk.StringVar(value="2")
-        self.integral_time = tk.StringVar(value="20")
-        self.derivative_time = tk.StringVar(value="1")
-        self.control_limit = tk.StringVar(value="100")
-        self.setpoint = tk.StringVar(value=self._format_number((1 / 6 * 100)))
-        self.component_error = tk.StringVar()
-        self.flow_error = tk.StringVar()
-        self.dynamics_error = tk.StringVar()
-        self.controller_error = tk.StringVar()
-        self.tuning_summary = tk.StringVar(value="Автоподбор ещё не выполнялся.")
-        self.controller_settings_title = tk.StringVar(value="Настройки PI-регулятора")
-        self.controller_formula = tk.StringVar()
-        self.controller_on_text = tk.StringVar(value="С PI-регулятором")
-        self.component_label = tk.StringVar()
-        self.component_symbol = tk.StringVar()
-        self.flow_label = tk.StringVar()
-        self.flow_symbol = tk.StringVar()
         self.baseline_result = tk.StringVar(value="—")
         self.disturbance_result = tk.StringVar(value="—")
         self.calculated_result = tk.StringVar(value="—")
@@ -202,15 +150,15 @@ class DynamicsControlApp(ttk.Frame):
                                               (self.response_canvas, self.response_toolbar, self.chart_readouts[1])))
         self.assignment_panel.update_summary()
         self.assignment_panel.update_route()
-        self._select_chain(LEAN_GAS)
-        for variable in (self.component_enabled, self.flow_enabled, self.component_value, self.flow_value,
-                         self.disturbance_type, self.start_time, self.simulation_duration, self.effect_duration,
-                         self.time_constant, self.delay, self.controller_enabled, self.controller_type,
-                         self.proportional_gain, self.integral_time, self.derivative_time, self.control_limit, self.setpoint, *self.extension_values.values()):
+        self.absorber_form.select_chain(LEAN_GAS)
+        for variable in (self.absorber_form.component_enabled, self.absorber_form.flow_enabled, self.absorber_form.component_value, self.absorber_form.flow_value,
+                         self.absorber_form.disturbance_type, self.absorber_form.start_time, self.absorber_form.simulation_duration, self.absorber_form.effect_duration,
+                         self.absorber_form.time_constant, self.absorber_form.delay, self.absorber_form.controller_enabled, self.absorber_form.controller_type,
+                         self.absorber_form.proportional_gain, self.absorber_form.integral_time, self.absorber_form.derivative_time, self.absorber_form.control_limit, self.absorber_form.setpoint, *self.absorber_form.extension_values.values()):
             variable.trace_add("write", self._mark_result_stale)
         for variable in (self.assignment_panel.assignment_enabled, self.assignment_panel.predicted_direction, self.assignment_panel.predicted_steady,
                          self.assignment_panel.predicted_fastest, self.assignment_panel.predicted_correction, self.analysis_panel.sensitivity_parameter,
-                         *self.extension_values.values(), self.analysis_panel.sensitivity_values, self.analysis_panel.map_controller_type, self.analysis_panel.map_gain_min,
+                         *self.absorber_form.extension_values.values(), self.analysis_panel.sensitivity_values, self.analysis_panel.map_controller_type, self.analysis_panel.map_gain_min,
                          self.analysis_panel.map_gain_max, self.analysis_panel.map_integral_min, self.analysis_panel.map_integral_max,
                          self.analysis_panel.map_derivative_time, self.analysis_panel.map_grid_size):
             variable.trace_add("write", self._invalidate_task)
@@ -410,13 +358,13 @@ class DynamicsControlApp(ttk.Frame):
             self.pages[key] = page
             self.page_contents[key] = page.content
 
-        self._build_chain_card(self.page_contents["disturbances"])
-        self._build_disturbance_card(self.page_contents["disturbances"])
-        self._build_control_diagram(self.page_contents["disturbances"])
-        self._build_dynamics_card(self.page_contents["dynamics"])
+        self.absorber_form.build_chain_card(self.page_contents["disturbances"])
+        self.absorber_form.build_disturbance_card(self.page_contents["disturbances"])
+        self.absorber_form.build_control_diagram(self.page_contents["disturbances"])
+        self.absorber_form.build_dynamics_card(self.page_contents["dynamics"])
         self._build_result_card(self.page_contents["results"])
         ttk.Label(self.page_contents["comparison"], text="Выберите опыты в широкой таблице над графиками. Пустой выбор показывает все опыты. Отчёты включают все закреплённые опыты.", wraplength=330, style="Body.TLabel").grid(row=0, column=0, sticky="w")
-        self._build_controller_card(self.page_contents["controller"])
+        self.absorber_form.build_controller_card(self.page_contents["controller"])
         self.analysis_panel.build_sensitivity_card(self.page_contents["sensitivity"])
         self.analysis_panel.build_map_card(self.page_contents["tuning_map"])
         self._build_scenarios_card(self.page_contents["scenarios"])
@@ -591,7 +539,7 @@ class DynamicsControlApp(ttk.Frame):
             return "Подача и отбор"
         if self.current_page in ("comparison", "sensitivity", "tuning_map"):
             return {"comparison": "Сравнение", "sensitivity": "Чувствительность", "tuning_map": "Карта настроек"}[self.current_page]
-        return "Сигналы регулятора" if self.controller_enabled.get() else "Воздействие"
+        return "Сигналы регулятора" if self.absorber_form.controller_enabled.get() else "Воздействие"
 
     def _choose_chart_mode(self, _event=None):
         label = self.chart_mode_label.get()
@@ -818,296 +766,6 @@ class DynamicsControlApp(ttk.Frame):
     def _attach_tooltip(self, widget, text):
         self.text_tooltips.append(TextTooltip(widget, text))
 
-    def _build_chain_card(self, parent):
-        card = self._card(parent, 0)
-        ttk.Label(card, text="Цепь управления", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 14))
-        ttk.Button(
-            card,
-            text="Параметры модели",
-            command=self._open_model_parameters,
-            style="Toolbar.TButton",
-        ).grid(row=0, column=1, sticky="e", pady=(0, 14))
-
-        self.lean_button = ttk.Button(card, text="Обеднённый газ", command=lambda: self._select_chain(LEAN_GAS), style="Segment.TButton")
-        self.lean_button.grid(row=1, column=0, sticky="ew")
-        self.rich_button = ttk.Button(card, text="Насыщенный абсорбент", command=lambda: self._select_chain(RICH_ABSORBENT), style="Segment.TButton")
-        self.rich_button.grid(row=1, column=1, sticky="ew", padx=(4, 0))
-        card.columnconfigure((0, 1), weight=1)
-
-    def _open_model_parameters(self):
-        if self.model_dialog is not None and self.model_dialog.winfo_exists():
-            self.model_dialog.lift()
-            self.model_dialog.focus_force()
-            return
-
-        def apply_values(values):
-            self.model_values = values
-            self.setpoint.set(self._format_number(self._current_baseline() * 100))
-            self._mark_result_stale()
-            self._draw_control_diagram()
-            if self.last_calculation is None:
-                self._draw_static_charts()
-            self._set_status("Параметры модели обновлены")
-
-        self.model_dialog = ModelParametersDialog(
-            self.root,
-            self.model_values,
-            DEFAULT_MODEL_VALUES,
-            apply_values,
-            lambda: setattr(self, "model_dialog", None),
-            self._format_number,
-            BACKGROUND,
-        )
-
-    def _build_disturbance_card(self, parent):
-        card = self._card(parent, 1)
-        ttk.Label(card, text="Возмущающие воздействия", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 14))
-
-        self.component_check = ttk.Checkbutton(
-            card,
-            textvariable=self.component_label,
-            variable=self.component_enabled,
-            command=self._update_input_states,
-        )
-        self.component_check.grid(row=1, column=0, sticky="w")
-        ttk.Label(card, textvariable=self.component_symbol, style="Body.TLabel").grid(row=1, column=1, padx=(8, 8))
-        self.component_entry = ttk.Entry(card, textvariable=self.component_value, width=8, state="disabled")
-        self.component_entry.grid(row=1, column=2, sticky="ew")
-        ttk.Label(card, textvariable=self.component_error, style="Error.TLabel", wraplength=300).grid(row=2, column=0, columnspan=3, sticky="w", pady=(3, 8))
-
-        self.flow_check = ttk.Checkbutton(
-            card,
-            textvariable=self.flow_label,
-            variable=self.flow_enabled,
-            command=self._update_input_states,
-        )
-        self.flow_check.grid(row=3, column=0, sticky="w")
-        ttk.Label(card, textvariable=self.flow_symbol, style="Body.TLabel").grid(row=3, column=1, padx=(8, 8))
-        self.flow_entry = ttk.Entry(card, textvariable=self.flow_value, width=8, state="disabled")
-        self.flow_entry.grid(row=3, column=2, sticky="ew")
-        ttk.Label(card, textvariable=self.flow_error, style="Error.TLabel", wraplength=300).grid(row=4, column=0, columnspan=3, sticky="w", pady=(3, 8))
-
-        ttk.Label(card, textvariable=self.disturbance_units_hint, style="Muted.TLabel", wraplength=320).grid(
-            row=5, column=0, columnspan=3, sticky="w", pady=(2, 14)
-        )
-
-        units_box = ttk.Combobox(card, textvariable=self.disturbance_units, values=("Доля", "%"),
-                                state="readonly", width=8)
-        units_box.grid(row=6, column=0, columnspan=3, sticky="w", pady=(0, 12))
-        units_box.bind("<<ComboboxSelected>>", self._switch_disturbance_units)
-        self._attach_tooltip(units_box, "Единицы возмущения: доля или относительные проценты")
-        ttk.Button(
-            card,
-            text="Параметры динамики  →",
-            command=lambda: self._show_page("dynamics"),
-            style="Secondary.TButton",
-        ).grid(row=7, column=0, columnspan=3, sticky="ew")
-        ttk.Label(card, textvariable=self.dynamics_summary, style="Muted.TLabel", wraplength=320).grid(
-            row=8, column=0, columnspan=3, sticky="w", pady=(6, 0)
-        )
-        card.columnconfigure(0, weight=1)
-
-    def _build_control_diagram(self, parent):
-        card = self._card(parent, 2, padding=(14, 12))
-        ttk.Label(card, text="Структурная схема", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 6)
-        )
-        ttk.Label(
-            card,
-            text="Включённые возмущения подсвечиваются синим.",
-            style="Muted.TLabel",
-        ).grid(row=1, column=0, sticky="w", pady=(0, 6))
-        self.control_diagram = tk.Canvas(
-            card,
-            width=340,
-            height=180,
-            background=CARD_BACKGROUND,
-            borderwidth=0,
-            highlightthickness=0,
-        )
-        self.control_diagram.grid(row=2, column=0, sticky="ew")
-        self.component_value.trace_add("write", lambda *_: self._draw_control_diagram())
-        self.flow_value.trace_add("write", lambda *_: self._draw_control_diagram())
-        self._draw_control_diagram()
-
-    def _build_dynamics_card(self, parent):
-        card = self._card(parent, 0)
-        ttk.Label(card, text="Параметры времени и формы", style="CardTitle.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 14)
-        )
-
-        ttk.Label(card, text="Вид воздействия", style="Body.TLabel").grid(row=1, column=0, sticky="w")
-        ttk.Label(card, text="Начало, с", style="Body.TLabel").grid(row=1, column=1, sticky="w", padx=(10, 0))
-        self.disturbance_type_box = ttk.Combobox(
-            card,
-            textvariable=self.disturbance_type,
-            values=tuple(DISTURBANCE_TYPES),
-            state="readonly",
-            width=23,
-        )
-        self.disturbance_type_box.grid(row=2, column=0, sticky="ew", pady=(3, 12))
-        self.disturbance_type_box.bind("<<ComboboxSelected>>", self._update_disturbance_type)
-        self.disturbance_tooltip = DisturbanceTooltip(
-            self.disturbance_type_box,
-            self.disturbance_type.get,
-        )
-        self.start_time_entry = ttk.Entry(card, textvariable=self.start_time)
-        self.start_time_entry.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=(3, 12))
-
-        ttk.Label(card, text="Длительность моделирования, с", style="Body.TLabel", wraplength=170).grid(row=3, column=0, sticky="w")
-        ttk.Label(card, text="Длительность воздействия, с", style="Body.TLabel", wraplength=170).grid(row=3, column=1, sticky="w", padx=(10, 0))
-        self.simulation_duration_entry = ttk.Entry(card, textvariable=self.simulation_duration)
-        self.simulation_duration_entry.grid(row=4, column=0, sticky="ew", pady=(3, 12))
-        self.effect_duration_entry = ttk.Entry(card, textvariable=self.effect_duration)
-        self.effect_duration_entry.grid(row=4, column=1, sticky="ew", padx=(10, 0), pady=(3, 12))
-
-        time_constant_label = ttk.Label(
-            card,
-            text="Постоянная времени T, с",
-            style="Body.TLabel",
-        )
-        time_constant_label.grid(row=5, column=0, sticky="w")
-        delay_label = ttk.Label(card, text="Запаздывание L, с", style="Body.TLabel")
-        delay_label.grid(row=5, column=1, sticky="w", padx=(10, 0))
-        self._attach_tooltip(
-            time_constant_label,
-            "T характеризует инерционность объекта: примерно за T секунд отклик проходит 63% изменения.",
-        )
-        self._attach_tooltip(
-            delay_label,
-            "L — чистое запаздывание между воздействием и началом реакции объекта.",
-        )
-        self.time_constant_entry = ttk.Entry(card, textvariable=self.time_constant)
-        self.time_constant_entry.grid(row=6, column=0, sticky="ew", pady=(3, 0))
-        self.delay_entry = ttk.Entry(card, textvariable=self.delay)
-        self.delay_entry.grid(row=6, column=1, sticky="ew", padx=(10, 0), pady=(3, 0))
-
-        self.dynamics_error_label = ttk.Label(
-            card,
-            textvariable=self.dynamics_error,
-            style="Error.TLabel",
-            wraplength=330,
-        )
-        self.dynamics_error_label.grid(row=7, column=0, columnspan=2, sticky="w", pady=(6, 0))
-        card.columnconfigure((0, 1), weight=1)
-        for variable in (
-            self.disturbance_type,
-            self.start_time,
-            self.simulation_duration,
-            self.time_constant,
-            self.delay,
-        ):
-            variable.trace_add("write", self._update_dynamics_summary)
-        self._update_disturbance_type()
-
-    def _build_controller_card(self, parent):
-        card = self._card(parent, 0, padding=(14, 10))
-        ttk.Label(card, text="Режим управления", style="CardTitle.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 10)
-        )
-        self.controller_off_button = ttk.Button(
-            card,
-            text="Без регулятора",
-            command=lambda: self._set_controller_mode(False),
-            style="SelectedSegment.TButton",
-        )
-        self.controller_off_button.grid(row=1, column=0, sticky="ew")
-        self.controller_on_button = ttk.Button(
-            card,
-            textvariable=self.controller_on_text,
-            command=lambda: self._set_controller_mode(True),
-            style="Segment.TButton",
-        )
-        self.controller_on_button.grid(row=1, column=1, sticky="ew", padx=(4, 0))
-        card.columnconfigure((0, 1), weight=1)
-
-        parameters = self._card(parent, 1, padding=(14, 10))
-        ttk.Label(parameters, textvariable=self.controller_settings_title, style="CardTitle.TLabel").grid(
-            row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
-        )
-        ttk.Label(parameters, text="Тип регулятора", style="Body.TLabel").grid(
-            row=1, column=0, sticky="w", pady=3
-        )
-        self.controller_type_box = ttk.Combobox(
-            parameters,
-            textvariable=self.controller_type,
-            values=CONTROLLER_TYPES,
-            state="readonly",
-            width=10,
-        )
-        self.controller_type_box.grid(row=1, column=1, sticky="e", pady=3, padx=(10, 0))
-        self.controller_type_box.bind("<<ComboboxSelected>>", self._update_controller_type)
-        fields = (
-            ("Коэффициент регулятора K", self.proportional_gain, "proportional_gain_entry"),
-            ("Время интегрирования Ti, с", self.integral_time, "integral_time_entry"),
-            ("Время дифференцирования Td, с", self.derivative_time, "derivative_time_entry"),
-            ("Предел Δη, п.п.", self.control_limit, "control_limit_entry"),
-            ("Задание концентрации, %", self.setpoint, "setpoint_entry"),
-        )
-        self.controller_entries = []
-        controller_help = {
-            "Коэффициент регулятора K": "K определяет силу реакции регулятора на текущую ошибку.",
-            "Время интегрирования Ti, с": "Ti задаёт скорость накопления интегральной составляющей: меньше Ti — сильнее интегральное действие.",
-            "Время дифференцирования Td, с": "Td определяет влияние скорости изменения выхода; большое Td повышает чувствительность к шуму.",
-            "Предел Δη, п.п.": "Максимальное изменение η от исходного значения в процентных пунктах; η остаётся от 0 до 100%.",
-            "Задание концентрации, %": "Значение выхода, к которому регулятор должен вернуть объект.",
-        }
-        for row, (label, variable, attribute) in enumerate(fields, start=2):
-            field_label = ttk.Label(parameters, text=label, style="Body.TLabel")
-            field_label.grid(row=row, column=0, sticky="w", pady=3)
-            self._attach_tooltip(field_label, controller_help[label])
-            entry = ttk.Entry(parameters, textvariable=variable, width=12, state="disabled")
-            entry.grid(row=row, column=1, sticky="e", pady=3, padx=(10, 0))
-            setattr(self, attribute, entry)
-            self.controller_entries.append(entry)
-        self.auto_tune_button = ttk.Button(
-            parameters,
-            text="Подобрать автоматически",
-            command=self._auto_tune_controller,
-            style="Secondary.TButton",
-        )
-        self.auto_tune_button.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(8, 4))
-        ttk.Label(
-            parameters,
-            textvariable=self.tuning_summary,
-            style="Muted.TLabel",
-            wraplength=330,
-        ).grid(row=8, column=0, columnspan=2, sticky="w", pady=(3, 0))
-        ttk.Label(
-            parameters,
-            textvariable=self.controller_error,
-            style="Error.TLabel",
-            wraplength=330,
-        ).grid(row=9, column=0, columnspan=2, sticky="w", pady=(5, 0))
-        parameters.columnconfigure(0, weight=1)
-
-        extensions = self._card(parent, 2, padding=(14, 10))
-        extensions.columnconfigure(0, weight=1)
-        ttk.Label(extensions, text="Датчик и механизм", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        for row, (key, label, scale) in enumerate(EXTENSION_FIELDS, 1):
-            ttk.Label(extensions, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=3)
-            entry = ttk.Entry(extensions, textvariable=self.extension_values[key], width=12, state="disabled")
-            entry.grid(row=row, column=1, sticky="e", padx=(10, 0), pady=3)
-            self.extension_entries[key] = entry
-            self.controller_entries.append(entry)
-        ttk.Label(extensions, text="Ноль отключает шум, фильтр, инерцию или предел скорости. Начальное число повторяет шум.",
-                  style="Muted.TLabel", wraplength=330).grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        self.extension_values["noise_std"].trace_add("write", lambda *_: self._update_controller_type())
-        explanation = self._card(parent, 3, padding=(14, 10))
-        ttk.Label(explanation, text="Учебная модель", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 6)
-        )
-        self.formula_panel = FormulaPanel(explanation, CARD_BACKGROUND)
-        self.formula_panel.grid(row=1, column=0, sticky="ew")
-        ttk.Label(
-            explanation,
-            textvariable=self.controller_formula,
-            style="Body.TLabel",
-            justify="left",
-            wraplength=330,
-        ).grid(row=2, column=0, sticky="w", pady=(6, 0))
-        self._update_controller_type()
-
     def _task_signature(self, kind):
         if kind == "tank":
             return [self.selected_model.get(), self.tank_page.signature()]
@@ -1130,7 +788,7 @@ class DynamicsControlApp(ttk.Frame):
         elif kind == "map":
             signature.extend(variable.get() for variable in (self.analysis_panel.map_controller_type, self.analysis_panel.map_gain_min,
                              self.analysis_panel.map_gain_max, self.analysis_panel.map_integral_min, self.analysis_panel.map_integral_max,
-                             self.analysis_panel.map_derivative_time, self.analysis_panel.map_grid_size, *self.extension_values.values()))
+                             self.analysis_panel.map_derivative_time, self.analysis_panel.map_grid_size, *self.absorber_form.extension_values.values()))
         if kind == "identification":
             signature.append(self.identification_page.signature())
         return signature
@@ -1190,7 +848,7 @@ class DynamicsControlApp(ttk.Frame):
             self._set_status("Расчёт отменён; последний результат сохранён")
 
     def _invalidate_task(self, *_):
-        if self._changing_units:
+        if self.absorber_form._changing_units:
             return
         if self._task is not None and self._task_source != self._task_signature(self._task_kind):
             self._cancel_task()
@@ -1376,51 +1034,51 @@ class DynamicsControlApp(ttk.Frame):
         for page in self.pages.values():
             page.scroll_to_top()
         self.applied_scenario = copy.deepcopy(scenario)
-        self.model_values = scenario["model_values"].copy()
+        self.absorber_form.model_values = scenario["model_values"].copy()
         self.assignment_panel.current_lesson = scenario["lesson"]
         self.assignment_panel.assignment_attempts = 0
         self.assignment_panel.assignment_evaluation = None
         self.assignment_panel.learning_step = 1
         self.assignment_panel.update_summary()
         self.assignment_panel.update_route()
-        self._select_chain(scenario["chain"])
-        self.component_enabled.set(scenario["component"] is not None)
-        self.flow_enabled.set(scenario["flow"] is not None)
-        self.component_value.set(
-            "" if scenario["component"] is None else str(Decimal(str(scenario["component"])).scaleb(2 if self._disturbance_units == "percent" else 0))
+        self.absorber_form.select_chain(scenario["chain"])
+        self.absorber_form.component_enabled.set(scenario["component"] is not None)
+        self.absorber_form.flow_enabled.set(scenario["flow"] is not None)
+        self.absorber_form.component_value.set(
+            "" if scenario["component"] is None else str(Decimal(str(scenario["component"])).scaleb(2 if self.absorber_form._disturbance_units == "percent" else 0))
         )
-        self.flow_value.set(
-            "" if scenario["flow"] is None else str(Decimal(str(scenario["flow"])).scaleb(2 if self._disturbance_units == "percent" else 0))
+        self.absorber_form.flow_value.set(
+            "" if scenario["flow"] is None else str(Decimal(str(scenario["flow"])).scaleb(2 if self.absorber_form._disturbance_units == "percent" else 0))
         )
-        self.disturbance_type.set(scenario["disturbance_type"])
-        self.start_time.set(self._format_number(scenario["start_time"]))
-        self.simulation_duration.set(self._format_number(scenario["simulation_duration"]))
-        self.effect_duration.set(self._format_number(scenario["effect_duration"]))
-        self.time_constant.set(self._format_number(scenario["time_constant"]))
-        self.delay.set(self._format_number(scenario["delay"]))
-        self._update_disturbance_type()
+        self.absorber_form.disturbance_type.set(scenario["disturbance_type"])
+        self.absorber_form.start_time.set(self._format_number(scenario["start_time"]))
+        self.absorber_form.simulation_duration.set(self._format_number(scenario["simulation_duration"]))
+        self.absorber_form.effect_duration.set(self._format_number(scenario["effect_duration"]))
+        self.absorber_form.time_constant.set(self._format_number(scenario["time_constant"]))
+        self.absorber_form.delay.set(self._format_number(scenario["delay"]))
+        self.absorber_form.update_disturbance_type()
 
         controller = scenario["controller"]
         for key, label, scale in EXTENSION_FIELDS:
-            self.extension_values[key].set(format((controller or {}).get(key, 0) * scale, ".15g"))
+            self.absorber_form.extension_values[key].set(format((controller or {}).get(key, 0) * scale, ".15g"))
         if controller is None:
-            self._set_controller_mode(False)
+            self.absorber_form.set_controller_mode(False)
         else:
-            self.controller_type.set(controller["type"])
-            self._update_controller_type()
-            self._set_controller_mode(True)
-            self.proportional_gain.set(self._format_number(controller["gain"]))
-            self.integral_time.set(self._format_number(controller["integral_time"]))
-            self.derivative_time.set(self._format_number(controller["derivative_time"]))
-            self.control_limit.set(self._format_number(controller["control_limit"] * 100))
+            self.absorber_form.controller_type.set(controller["type"])
+            self.absorber_form.update_controller_type()
+            self.absorber_form.set_controller_mode(True)
+            self.absorber_form.proportional_gain.set(self._format_number(controller["gain"]))
+            self.absorber_form.integral_time.set(self._format_number(controller["integral_time"]))
+            self.absorber_form.derivative_time.set(self._format_number(controller["derivative_time"]))
+            self.absorber_form.control_limit.set(self._format_number(controller["control_limit"] * 100))
             setpoint = controller.get("setpoint")
-            self.setpoint.set(
-                self._format_number(100 * (self._current_baseline() if setpoint is None else setpoint))
+            self.absorber_form.setpoint.set(
+                self._format_number(100 * (self.absorber_form.current_baseline() if setpoint is None else setpoint))
             )
 
         self.assignment_panel.assignment_tolerance_percent = scenario.get("steady_tolerance_percent", 5.0)
         self.assignment_panel.assignment_absolute_tolerance = scenario.get("steady_absolute_tolerance", 1e-6)
-        self._update_input_states()
+        self.absorber_form.update_input_states()
         self._clear_result_values()
         self.assignment_panel.predicted_direction.set("")
         self.assignment_panel.predicted_steady.set("")
@@ -1468,52 +1126,6 @@ class DynamicsControlApp(ttk.Frame):
         except OSError:
             pass
         self.root.destroy()
-
-    def _set_disturbance_units(self, units):
-        self._disturbance_units = units
-        self.disturbance_units.set("%" if units == "percent" else "Доля")
-        self.disturbance_units_hint.set("Проценты: +10 = +10%, −10 = −10%. Диапазон: −99…999%."
-                                        if units == "percent" else "Доля: +0.10 = +10%, −0.10 = −10%. Диапазон: −0.99…9.99")
-
-    def _switch_disturbance_units(self, _event=None):
-        units = "percent" if self.disturbance_units.get() == "%" else "fraction"
-        if units == self._disturbance_units:
-            return
-        converted = []
-        for variable, error, entry in ((self.component_value, self.component_error, self.component_entry),
-                                       (self.flow_value, self.flow_error, self.flow_entry)):
-            if not variable.get().strip():
-                converted.append("")
-                continue
-            try:
-                value = parse_disturbance(variable.get(), self._disturbance_units)
-            except ValueError as problem:
-                self.disturbance_units.set("%" if self._disturbance_units == "percent" else "Доля")
-                error.set(str(problem))
-                entry.configure(style="Error.TEntry")
-                return
-            converted.append(str(Decimal(variable.get().strip().replace(",", ".")).scaleb(2 if units == "percent" else -2)))
-        sensitivity = None
-        if self.analysis_panel.sensitivity_parameter.get() in ("Возмущение состава", "Возмущение расхода"):
-            try:
-                self.analysis_panel.parse_sensitivity_values()
-            except ValueError as problem:
-                self.disturbance_units.set("%" if self._disturbance_units == "percent" else "Доля")
-                self.analysis_panel.sensitivity_summary.set(str(problem))
-                return
-            sensitivity = "; ".join(str(Decimal(item.strip().replace(",", ".")).scaleb(
-                2 if units == "percent" else -2)) for item in self.analysis_panel.sensitivity_values.get().replace("\n", ";").split(";"))
-        self._changing_units = True
-        try:
-            self._set_disturbance_units(units)
-            if sensitivity is not None:
-                self.analysis_panel.sensitivity_values.set(sensitivity)
-            for variable, value in zip((self.component_value, self.flow_value), converted):
-                variable.set(value)
-        finally:
-            self._changing_units = False
-        self._mark_result_stale()
-        self._draw_control_diagram()
 
     def _save_comparison_session(self):
         selected = filedialog.asksaveasfilename(
@@ -1777,7 +1389,7 @@ class DynamicsControlApp(ttk.Frame):
         return result
 
     def _mark_result_stale(self, *_):
-        if self._changing_units:
+        if self.absorber_form._changing_units:
             return
         self._invalidate_task()
         if self.last_calculation is None or "input_state" not in self.last_calculation:
@@ -1795,28 +1407,28 @@ class DynamicsControlApp(ttk.Frame):
 
     def _capture_input_state(self):
         return {
-            "chain": self.chain,
-            "model_values": self.model_values.copy(),
+            "chain": self.absorber_form.chain,
+            "model_values": self.absorber_form.model_values.copy(),
             "model_version": 2,
-            "component_enabled": self.component_enabled.get(),
-            "flow_enabled": self.flow_enabled.get(),
-            "disturbance_units": self._disturbance_units,
-            "component_value": self.component_value.get(),
-            "flow_value": self.flow_value.get(),
-            "disturbance_type": self.disturbance_type.get(),
-            "start_time": self.start_time.get(),
-            "simulation_duration": self.simulation_duration.get(),
-            "effect_duration": self.effect_duration.get(),
-            "time_constant": self.time_constant.get(),
-            "delay": self.delay.get(),
-            **{key: value.get() for key, value in self.extension_values.items()},
-            "controller_enabled": self.controller_enabled.get(),
-            "controller_type": self.controller_type.get(),
-            "proportional_gain": self.proportional_gain.get(),
-            "integral_time": self.integral_time.get(),
-            "derivative_time": self.derivative_time.get(),
-            "control_limit": self.control_limit.get(),
-            "setpoint": self.setpoint.get(),
+            "component_enabled": self.absorber_form.component_enabled.get(),
+            "flow_enabled": self.absorber_form.flow_enabled.get(),
+            "disturbance_units": self.absorber_form._disturbance_units,
+            "component_value": self.absorber_form.component_value.get(),
+            "flow_value": self.absorber_form.flow_value.get(),
+            "disturbance_type": self.absorber_form.disturbance_type.get(),
+            "start_time": self.absorber_form.start_time.get(),
+            "simulation_duration": self.absorber_form.simulation_duration.get(),
+            "effect_duration": self.absorber_form.effect_duration.get(),
+            "time_constant": self.absorber_form.time_constant.get(),
+            "delay": self.absorber_form.delay.get(),
+            **{key: value.get() for key, value in self.absorber_form.extension_values.items()},
+            "controller_enabled": self.absorber_form.controller_enabled.get(),
+            "controller_type": self.absorber_form.controller_type.get(),
+            "proportional_gain": self.absorber_form.proportional_gain.get(),
+            "integral_time": self.absorber_form.integral_time.get(),
+            "derivative_time": self.absorber_form.derivative_time.get(),
+            "control_limit": self.absorber_form.control_limit.get(),
+            "setpoint": self.absorber_form.setpoint.get(),
         }
 
     def _restore_input_state(self, state, *, draft=False, preserve_result=False):
@@ -1833,35 +1445,35 @@ class DynamicsControlApp(ttk.Frame):
         for key in restored_model:
             restored_model[key] = float(model_values.get(key, restored_model[key]))
         absorption_balance(**restored_model)
-        self.model_values = restored_model
-        self._set_disturbance_units(state.get("disturbance_units", "fraction"))
-        self._select_chain(state["chain"])
-        for key, variable in self.extension_values.items():
+        self.absorber_form.model_values = restored_model
+        self.absorber_form.set_disturbance_units(state.get("disturbance_units", "fraction"))
+        self.absorber_form.select_chain(state["chain"])
+        for key, variable in self.absorber_form.extension_values.items():
             variable.set(state.get(key, "0"))
         for key, variable in (
-            ("component_enabled", self.component_enabled),
-            ("flow_enabled", self.flow_enabled),
-            ("component_value", self.component_value),
-            ("flow_value", self.flow_value),
-            ("disturbance_type", self.disturbance_type),
-            ("start_time", self.start_time),
-            ("simulation_duration", self.simulation_duration),
-            ("effect_duration", self.effect_duration),
-            ("time_constant", self.time_constant),
-            ("delay", self.delay),
-            ("controller_type", self.controller_type),
-            ("proportional_gain", self.proportional_gain),
-            ("integral_time", self.integral_time),
-            ("derivative_time", self.derivative_time),
-            ("control_limit", self.control_limit),
-            ("setpoint", self.setpoint),
+            ("component_enabled", self.absorber_form.component_enabled),
+            ("flow_enabled", self.absorber_form.flow_enabled),
+            ("component_value", self.absorber_form.component_value),
+            ("flow_value", self.absorber_form.flow_value),
+            ("disturbance_type", self.absorber_form.disturbance_type),
+            ("start_time", self.absorber_form.start_time),
+            ("simulation_duration", self.absorber_form.simulation_duration),
+            ("effect_duration", self.absorber_form.effect_duration),
+            ("time_constant", self.absorber_form.time_constant),
+            ("delay", self.absorber_form.delay),
+            ("controller_type", self.absorber_form.controller_type),
+            ("proportional_gain", self.absorber_form.proportional_gain),
+            ("integral_time", self.absorber_form.integral_time),
+            ("derivative_time", self.absorber_form.derivative_time),
+            ("control_limit", self.absorber_form.control_limit),
+            ("setpoint", self.absorber_form.setpoint),
         ):
             variable.set(state[key])
-        self._set_controller_mode(bool(state["controller_enabled"]))
-        self._update_controller_type()
-        self._update_disturbance_type()
-        self._update_input_states()
-        self._draw_control_diagram()
+        self.absorber_form.set_controller_mode(bool(state["controller_enabled"]))
+        self.absorber_form.update_controller_type()
+        self.absorber_form.update_disturbance_type()
+        self.absorber_form.update_input_states()
+        self.absorber_form.draw_control_diagram()
         if not preserve_result:
             self._clear_result_values()
             self._draw_static_charts()
@@ -1874,359 +1486,24 @@ class DynamicsControlApp(ttk.Frame):
             return title
         return title.removeprefix("Применён: ").removesuffix(".")
 
-    def _select_chain(self, chain):
-        self.chain = chain
-        self.lean_button.configure(style="SelectedSegment.TButton" if chain == LEAN_GAS else "Segment.TButton")
-        self.rich_button.configure(style="SelectedSegment.TButton" if chain == RICH_ABSORBENT else "Segment.TButton")
-
-        if chain == LEAN_GAS:
-            self.component_label.set("Состав исходного газа")
-            self.component_symbol.set("Xг")
-            self.flow_label.set("Расход газовой смеси")
-            self.flow_symbol.set("Gг")
-            self.response_subtitle.set("Концентрация обеднённого газа")
-        else:
-            self.component_label.set("Исходный состав абсорбента")
-            self.component_symbol.set("Xа")
-            self.flow_label.set("Расход абсорбента")
-            self.flow_symbol.set("Gа")
-            self.response_subtitle.set("Концентрация насыщенного абсорбента")
-
-        self.setpoint.set(self._format_number(self._current_baseline() * 100))
-        self._draw_control_diagram()
-        self._mark_result_stale()
-        if self.last_calculation is None:
-            self._draw_static_charts()
-
-    def _current_baseline(self):
-        return float(absorption_balance(**self.model_values)["xog" if self.chain == LEAN_GAS else "xna"])
-
-    def _update_controller_type(self, _event=None):
-        self._refresh_chart_modes()
-        controller_type = self.controller_type.get()
-        self.controller_settings_title.set(f"Настройки {controller_type}-регулятора")
-        self.controller_on_text.set(f"С {controller_type}-регулятором")
-        details = []
-        if "I" in controller_type:
-            details.append("Интегратор защищён от насыщения.")
-        if "D" in controller_type:
-            details.append("Производная берётся по выходу без скачка от задания.")
-        details.append("η = clip(η₀ + s·v): s = −1 для газа, +1 для жидкости. Предел Δη — в п.п.")
-        self.controller_formula.set(
-            f"{' '.join(details)}\n\n"
-            "Выше показаны правила автоподбора. Для PID/PD при наличии "
-            "запаздывания целевая динамика ускоряется вдвое."
-        )
-        if hasattr(self, "formula_panel"):
-            self.formula_panel.set_controller_type(controller_type)
-        self.auto_tune_button.configure(state="normal")
-        self.tuning_summary.set(f"Автоподбор {controller_type} готов к запуску.")
-        self._update_controller_entry_states()
-        if hasattr(self, "disturbance_axis") and _event is not None:
-            self._mark_result_stale()
-            self._set_status("Тип регулятора изменён — выполните расчёт")
-
-    def _update_controller_entry_states(self):
-        enabled = self.controller_enabled.get()
-        controller_type = self.controller_type.get()
-        states = {
-            self.proportional_gain_entry: enabled,
-            self.integral_time_entry: enabled and "I" in controller_type,
-            self.derivative_time_entry: enabled and "D" in controller_type,
-            self.control_limit_entry: enabled,
-            self.setpoint_entry: enabled,
-        }
-        for key, entry in self.extension_entries.items():
-            active = enabled and (key != "derivative_filter_time" or "D" in controller_type)
-            if key == "noise_seed":
-                try:
-                    active = enabled and float(self.extension_values["noise_std"].get().replace(",", ".")) > 0
-                except ValueError:
-                    active = False
-            states[entry] = active
-        for entry, active in states.items():
-            entry.configure(state="normal" if active else "disabled")
-
-    def _set_controller_mode(self, enabled):
-        self.controller_enabled.set(enabled)
-        if self.last_calculation is None:
-            self.settling_time_label.set("Длительность регулирования (±5%)" if enabled
-                                         else "Длительность установления (±5%)")
-        self.controller_off_button.configure(
-            style="Segment.TButton" if enabled else "SelectedSegment.TButton"
-        )
-        self.controller_on_button.configure(
-            style="SelectedSegment.TButton" if enabled else "Segment.TButton"
-        )
-        self._update_controller_entry_states()
-        self.controller_error.set("")
-        if hasattr(self, "disturbance_axis"):
-            self._mark_result_stale()
-            if self.last_calculation is None:
-                self._draw_static_charts()
-            self._set_status("Режим управления изменён — выполните расчёт")
-
-    def _auto_tune_controller(self):
-        fields = (
-            ("Постоянная времени T", self.time_constant, self.time_constant_entry, parse_positive_number),
-            ("Запаздывание L", self.delay, self.delay_entry, parse_nonnegative_number),
-        )
-        parsed = {}
-        self.dynamics_error.set("")
-        for _label, _variable, entry, _parser in fields:
-            entry.configure(style="TEntry")
-
-        for label, variable, entry, parser in fields:
-            try:
-                parsed[label] = parser(variable.get())
-            except ValueError as error:
-                entry.configure(style="Error.TEntry")
-                self.dynamics_error.set(f"{label}: {error}")
-                self._show_page("dynamics")
-                self._set_status("Исправьте параметры динамики", error=True)
-                return
-
-        controller_type = self.controller_type.get()
-        try:
-            tuning = tune_balanced_controller(
-                self.chain, self.model_values, controller_type,
-                parsed["Постоянная времени T"],
-                parsed["Запаздывание L"],
-            )
-        except ValueError as error:
-            self.controller_error.set(str(error))
-            self._set_status(str(error), error=True)
-            return
-        self._set_controller_mode(True)
-        self.proportional_gain.set(self._format_number(tuning["proportional_gain"]))
-        if tuning["integral_time"] is not None:
-            self.integral_time.set(self._format_number(tuning["integral_time"]))
-        if tuning["derivative_time"] is not None:
-            self.derivative_time.set(self._format_number(tuning["derivative_time"]))
-        tuned_parameters = [
-            f"K={self._format_number(tuning['proportional_gain'])}",
-        ]
-        if tuning["integral_time"] is not None:
-            tuned_parameters.append(f"Ti={self._format_number(tuning['integral_time'])} с")
-        if tuning["derivative_time"] is not None:
-            tuned_parameters.append(f"Td={self._format_number(tuning['derivative_time'])} с")
-        self.tuning_summary.set(
-            f"Для T={self._format_number(parsed['Постоянная времени T'])} с, "
-            f"L={self._format_number(parsed['Запаздывание L'])} с: "
-            f"λ={self._format_number(tuning['closed_loop_time'])} с, "
-            f"{', '.join(tuned_parameters)}."
-        )
-        self._show_page("controller")
-        self._set_status(f"Настройки {controller_type}-регулятора подобраны — выполните расчёт")
-
-    def _draw_control_diagram(self):
-        if not hasattr(self, "control_diagram"):
-            return
-
-        canvas = self.control_diagram
-        canvas.delete("all")
-        active_fill = "#DBEAFE"
-        inactive_fill = "#F3F4F6"
-        component_symbol = "Xг" if self.chain == LEAN_GAS else "Xа"
-        flow_symbol = "Gг" if self.chain == LEAN_GAS else "Gа"
-        output_symbol = "Xог" if self.chain == LEAN_GAS else "Xна"
-
-        def disturbance_box(y, symbol, enabled, value):
-            fill = active_fill if enabled else inactive_fill
-            outline = ACCENT if enabled else BORDER
-            canvas.create_rectangle(8, y, 112, y + 40, fill=fill, outline=outline, width=2)
-            canvas.create_text(
-                60,
-                y + 20,
-                text=self._diagram_disturbance_text(symbol, enabled, value, self._disturbance_units),
-                fill=ACCENT_ACTIVE if enabled else MUTED,
-                font=("Segoe UI", 9, "bold" if enabled else "normal"),
-                width=94,
-            )
-
-        disturbance_box(10, component_symbol, self.component_enabled.get(), self.component_value.get())
-        disturbance_box(106, flow_symbol, self.flow_enabled.get(), self.flow_value.get())
-        canvas.create_line(112, 30, 148, 66, fill=MUTED, width=2, arrow=tk.LAST)
-        canvas.create_line(112, 126, 148, 90, fill=MUTED, width=2, arrow=tk.LAST)
-        canvas.create_rectangle(148, 48, 282, 106, fill="#EAF2FF", outline=ACCENT, width=2)
-        canvas.create_text(215, 77, text="Объект управления", fill=TEXT, font=("Segoe UI", 10, "bold"), width=120)
-        canvas.create_line(215, 106, 215, 134, fill=MUTED, width=2, arrow=tk.LAST)
-        canvas.create_rectangle(148, 136, 282, 174, fill="#ECFDF3", outline=SUCCESS, width=2)
-        canvas.create_text(215, 155, text=f"Выходная концентрация {output_symbol}", fill=TEXT, font=("Segoe UI", 9, "bold"), width=124)
-
-    @staticmethod
-    def _diagram_disturbance_text(symbol, enabled, value, units="fraction"):
-        if not enabled:
-            return f"{symbol}  выключено"
-        try:
-            return f"{symbol}  {parse_disturbance(value, units) * 100:+.1f}%"
-        except ValueError:
-            return f"{symbol}  активно"
-
-    def _update_input_states(self):
-        self._set_entry_state(self.component_entry, self.component_enabled.get(), self.component_value)
-        self._set_entry_state(self.flow_entry, self.flow_enabled.get(), self.flow_value)
-        enabled = self.component_enabled.get() or self.flow_enabled.get()
-        self.calculate_button.configure(state="normal" if enabled else "disabled")
-        self.calculation_hint.set("" if enabled else "Включите хотя бы одно возмущение")
-        self._clear_errors()
-        self._draw_control_diagram()
-
-    def _update_dynamics_summary(self, *_):
-        self.dynamics_summary.set(
-            f"{self.disturbance_type.get()} · "
-            f"t₀={self.start_time.get() or '—'} с · "
-            f"T={self.time_constant.get() or '—'} с · "
-            f"L={self.delay.get() or '—'} с"
-        )
-
-    def _update_disturbance_type(self, _event=None):
-        state = "disabled" if DISTURBANCE_TYPES[self.disturbance_type.get()] == STEP else "normal"
-        self.effect_duration_entry.configure(state=state)
-        self._update_dynamics_summary()
-
-    @staticmethod
-    def _set_entry_state(entry, enabled, value):
-        if enabled:
-            entry.configure(state="normal")
-        else:
-            value.set("")
-            entry.configure(state="disabled")
-
-    def _clear_errors(self):
-        self.component_error.set("")
-        self.flow_error.set("")
-        self.dynamics_error.set("")
-        self.controller_error.set("")
-        self.component_entry.configure(style="TEntry")
-        self.flow_entry.configure(style="TEntry")
-        for entry in (
-            self.start_time_entry,
-            self.simulation_duration_entry,
-            self.effect_duration_entry,
-            self.time_constant_entry,
-            self.delay_entry,
-        ):
-            entry.configure(style="TEntry")
-        for entry in self.controller_entries:
-            entry.configure(style="TEntry")
-
-    def _read_fraction(self, enabled, value, error_variable, entry):
-        if not enabled:
-            return 0.0
-        try:
-            return parse_disturbance(value.get(), self._disturbance_units)
-        except ValueError as error:
-            error_variable.set(str(error))
-            entry.configure(style="Error.TEntry")
-            self._show_page("disturbances")
-            raise
-
-    def _read_dynamic_parameters(self):
-        fields = (
-            ("Начало воздействия", self.start_time, self.start_time_entry, parse_nonnegative_number),
-            ("Длительность моделирования", self.simulation_duration, self.simulation_duration_entry, parse_positive_number),
-            ("Постоянная времени T", self.time_constant, self.time_constant_entry, parse_positive_number),
-            ("Запаздывание L", self.delay, self.delay_entry, parse_nonnegative_number),
-        )
-        parsed = {}
-        for label, variable, entry, parser in fields:
-            try:
-                parsed[label] = parser(variable.get())
-            except ValueError as error:
-                entry.configure(style="Error.TEntry")
-                self.dynamics_error.set(f"{label}: {error}")
-                self._show_page("dynamics")
-                raise
-
-        kind = DISTURBANCE_TYPES[self.disturbance_type.get()]
-        if kind == STEP:
-            effect_duration = 1.0
-        else:
-            try:
-                effect_duration = parse_positive_number(self.effect_duration.get())
-            except ValueError as error:
-                self.effect_duration_entry.configure(style="Error.TEntry")
-                self.dynamics_error.set(f"Длительность воздействия: {error}")
-                self._show_page("dynamics")
-                raise
-
-        start_time = parsed["Начало воздействия"]
-        simulation_duration = parsed["Длительность моделирования"]
-        if start_time >= simulation_duration:
-            self.start_time_entry.configure(style="Error.TEntry")
-            self.simulation_duration_entry.configure(style="Error.TEntry")
-            self.dynamics_error.set("Начало воздействия должно быть раньше окончания моделирования.")
-            self._show_page("dynamics")
-            raise ValueError(self.dynamics_error.get())
-
-        return {
-            "kind": kind,
-            "start_time": start_time,
-            "simulation_duration": simulation_duration,
-            "effect_duration": effect_duration,
-            "time_constant": parsed["Постоянная времени T"],
-            "delay": parsed["Запаздывание L"],
-        }
-
-    def _read_controller_parameters(self):
-        if not self.controller_enabled.get():
-            return None
-
-        controller_type = self.controller_type.get()
-        fields = [
-            ("Коэффициент K", self.proportional_gain, self.proportional_gain_entry, parse_nonnegative_number),
-            ("Предел Δη, п.п.", self.control_limit, self.control_limit_entry, parse_percentage),
-            ("Задание концентрации, %", self.setpoint, self.setpoint_entry, parse_percentage),
-        ]
-        if "I" in controller_type:
-            fields.append(("Время интегрирования Ti", self.integral_time, self.integral_time_entry, parse_positive_number))
-        if "D" in controller_type:
-            fields.append(("Время дифференцирования Td", self.derivative_time, self.derivative_time_entry, parse_nonnegative_number))
-        parsed = {}
-        for label, variable, entry, parser in fields:
-            try:
-                parsed[label] = parser(variable.get())
-            except ValueError as error:
-                entry.configure(style="Error.TEntry")
-                self.controller_error.set(f"{label}: {error}")
-                self._show_page("controller")
-                raise
-
-        try:
-            extensions = extensions_from_form({key: variable.get() for key, variable in self.extension_values.items()}, controller_type)
-        except ValueError as problem:
-            self.controller_error.set(str(problem))
-            self._show_page("controller")
-            raise
-        return {
-            **extensions,
-            "controller_type": controller_type,
-            "controller_gain": parsed["Коэффициент K"],
-            "integral_time": parsed.get("Время интегрирования Ti", 1.0),
-            "derivative_time": parsed.get("Время дифференцирования Td", 0.0),
-            "control_limit": parsed["Предел Δη, п.п."],
-            "setpoint": parsed["Задание концентрации, %"],
-        }
-
     def _calculate(self):
-        self._clear_errors()
+        self.absorber_form.clear_errors()
         try:
             prediction = self.assignment_panel.read_prediction()
-            component_fraction = self._read_fraction(
-                self.component_enabled.get(), self.component_value, self.component_error, self.component_entry
+            component_fraction = self.absorber_form.read_fraction(
+                self.absorber_form.component_enabled.get(), self.absorber_form.component_value, self.absorber_form.component_error, self.absorber_form.component_entry
             )
-            flow_fraction = self._read_fraction(
-                self.flow_enabled.get(), self.flow_value, self.flow_error, self.flow_entry
+            flow_fraction = self.absorber_form.read_fraction(
+                self.absorber_form.flow_enabled.get(), self.absorber_form.flow_value, self.absorber_form.flow_error, self.absorber_form.flow_entry
             )
-            dynamics = self._read_dynamic_parameters()
-            controller = self._read_controller_parameters()
+            dynamics = self.absorber_form.read_dynamic_parameters()
+            controller = self.absorber_form.read_controller_parameters()
         except ValueError:
             self._set_status("Исправьте значение", error=True)
             return
 
         state = self._capture_input_state()
-        metadata = {"disturbance_type": self.disturbance_type.get(), "input_state": state,
+        metadata = {"disturbance_type": self.absorber_form.disturbance_type.get(), "input_state": state,
                     "title": self._active_scenario_title(), "lesson": copy.deepcopy(self.assignment_panel.current_lesson),
                     "experiment_origin": self.identification_page.active_origin()}
         self._start_task("Расчёт опыта", lambda cancel, progress: run_model("absorber",
@@ -2298,7 +1575,7 @@ class DynamicsControlApp(ttk.Frame):
         calculated,
     ):
         from app.simulation import disturbed_inputs
-        values = disturbed_inputs(self.chain, self.model_values, component_fraction, flow_fraction)
+        values = disturbed_inputs(self.absorber_form.chain, self.absorber_form.model_values, component_fraction, flow_fraction)
         balance = absorption_balance(**values)
         self.calculation_steps.set(
             f"J = η · Gг · Xг = {float(balance['j']):.6g} кг/ч\n"
@@ -2343,16 +1620,16 @@ class DynamicsControlApp(ttk.Frame):
         self._cancel_task(announce=False)
         self._undo_clear = (self._capture_laboratory(), self.last_calculation)
         self.undo_clear_button.configure(state="normal")
-        self.component_enabled.set(False)
-        self.flow_enabled.set(False)
-        self.component_value.set("")
-        self.flow_value.set("")
-        self.component_entry.configure(state="disabled")
-        self.flow_entry.configure(state="disabled")
+        self.absorber_form.component_enabled.set(False)
+        self.absorber_form.flow_enabled.set(False)
+        self.absorber_form.component_value.set("")
+        self.absorber_form.flow_value.set("")
+        self.absorber_form.component_entry.configure(state="disabled")
+        self.absorber_form.flow_entry.configure(state="disabled")
         self.calculate_button.configure(state="disabled")
-        self._clear_errors()
+        self.absorber_form.clear_errors()
         self._clear_result_values()
-        self._draw_control_diagram()
+        self.absorber_form.draw_control_diagram()
         self._draw_static_charts()
         self.calculation_hint.set("Включите хотя бы одно возмущение")
         self._set_status("Опыт очищен; динамика, регулятор и история сравнения сохранены")
@@ -2361,12 +1638,12 @@ class DynamicsControlApp(ttk.Frame):
         self._cancel_task(announce=False)
         caption = self.active_scenario.get()
         if self.applied_scenario["controller"] is None:
-            self.controller_type.set("PI")
-            self.proportional_gain.set("2")
-            self.integral_time.set("20")
-            self.derivative_time.set("1")
-            self.control_limit.set("100")
-            self._update_controller_type()
+            self.absorber_form.controller_type.set("PI")
+            self.absorber_form.proportional_gain.set("2")
+            self.absorber_form.integral_time.set("20")
+            self.absorber_form.derivative_time.set("1")
+            self.absorber_form.control_limit.set("100")
+            self.absorber_form.update_controller_type()
         self._apply_scenario_data(copy.deepcopy(self.applied_scenario))
         self.active_scenario.set(caption)
         self._set_status("Исходные настройки применённого сценария восстановлены")
@@ -2395,8 +1672,8 @@ class DynamicsControlApp(ttk.Frame):
         self.calculated_result.set("—")
         self.final_result.set("—")
         self.result_mode.set(
-            f"С {self.controller_type.get()}-регулятором"
-            if self.controller_enabled.get()
+            f"С {self.absorber_form.controller_type.get()}-регулятором"
+            if self.absorber_form.controller_enabled.get()
             else "Без регулятора"
         )
         self.calculation_steps.set("Выполните расчёт, чтобы увидеть происхождение результата.")
@@ -2410,7 +1687,7 @@ class DynamicsControlApp(ttk.Frame):
     def _draw_static_charts(self):
         self.analysis_panel.remove_map_colorbar()
         self.analysis_panel.clear_map_click_callback()
-        baseline = self._current_baseline()
+        baseline = self.absorber_form.current_baseline()
         simulation_duration = self._safe_simulation_duration()
         time = np.linspace(0.0, simulation_duration, 501)
         self._draw_disturbance(time, np.zeros_like(time), 0.0, 0.0)
@@ -2742,7 +2019,7 @@ class DynamicsControlApp(ttk.Frame):
 
     def _safe_simulation_duration(self):
         try:
-            return parse_positive_number(self.simulation_duration.get())
+            return parse_positive_number(self.absorber_form.simulation_duration.get())
         except ValueError:
             return 100.0
 
@@ -2843,11 +2120,11 @@ def _run_release_check(output_path):
             if no_response["quality"]["error_acceptable"] or not no_response["warning"]:
                 raise RuntimeError("Длинный исходный участок скрыл отсутствие отклика.")
             report["identification_quality_verified"] = True
-            app.chain = RICH_ABSORBENT
-            app.controller_enabled.set(True); app.controller_type.set("PI")
-            app.setpoint.set("30.5"); app.control_limit.set("20")
-            app.component_enabled.set(False); app.flow_enabled.set(False)
-            app.simulation_duration.set("100"); app.time_constant.set("8"); app.delay.set("0")
+            app.absorber_form.chain = RICH_ABSORBENT
+            app.absorber_form.controller_enabled.set(True); app.absorber_form.controller_type.set("PI")
+            app.absorber_form.setpoint.set("30.5"); app.absorber_form.control_limit.set("20")
+            app.absorber_form.component_enabled.set(False); app.absorber_form.flow_enabled.set(False)
+            app.absorber_form.simulation_duration.set("100"); app.absorber_form.time_constant.set("8"); app.absorber_form.delay.set("0")
             for key, value in dict(k_errors="0;20", t_errors="0", l_errors="0").items():
                 page.absorber_sensitivity.fields[key].set(value)
             page.absorber_sensitivity.start()
