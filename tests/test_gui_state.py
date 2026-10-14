@@ -331,7 +331,6 @@ class GuiStateTests(unittest.TestCase):
 
     def test_common_model_results_restore_and_reject_corrupt_snapshot(self):
         import numpy as np
-        from app.physical_models import MODELS
         from app.session_store import validate_laboratory
         from unittest.mock import patch
         import copy

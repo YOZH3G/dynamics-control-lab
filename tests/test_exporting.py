@@ -1,4 +1,4 @@
-from app.calculations import DEFAULT_MODEL_VALUES, absorption_balance
+from app.calculations import DEFAULT_MODEL_VALUES
 import tempfile
 import unittest
 from pathlib import Path

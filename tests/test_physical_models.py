@@ -1,6 +1,5 @@
 import copy
 import csv
-import json
 from pathlib import Path
 import tempfile
 import unittest
