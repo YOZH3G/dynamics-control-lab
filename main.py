@@ -2199,6 +2199,10 @@ def _run_release_check(output_path):
             app._show_page("heater")
             heater = app.heater_page
             heater.calculate(); wait_tank()
+            heater.identify(); wait_tank()
+            if heater.fit is None:
+                raise RuntimeError(heater.summary.get())
+            heater.tune()
             heater.calculate_pi(); wait_tank()
             if heater.result is None or heater.pi is None or heater.pi["metrics"]["status"] != "settled":
                 raise RuntimeError(heater.summary.get())

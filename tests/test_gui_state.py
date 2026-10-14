@@ -481,6 +481,8 @@ class GuiStateTests(unittest.TestCase):
             self.app._select_model()
 
     def test_heater_page_runs_shares_results_and_survives_session(self):
+        import functools
+        from app import identification
         from app.session_store import validate_laboratory
         app, page = self.app, self.app.heater_page
         app.selected_model.set("Нагреватель"); app._select_model()
@@ -492,6 +494,26 @@ class GuiStateTests(unittest.TestCase):
         page.calculate_pi(); self.wait_for_task()
         self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
         self.assertIn("PI: Kp=3", page.summary.get())
+        page.estimate_uncertainty()
+        self.assertIn("Сначала оцените K, T, L", page.summary.get())
+        page.identify(); self.wait_for_task()
+        self.assertEqual(page.view.get(), "Идентификация")
+        self.assertIn("Физические значения: K=2.132", page.summary.get())
+        with patch("ui.heater_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+            page.estimate_uncertainty(); self.wait_for_task()
+        self.assertIn("95% интервалы", page.summary.get())
+        page.tune()
+        self.assertEqual(page.fields["integral_time"].get(), format(page.fit["time_constant"], ".4g"))
+        self.assertIsNotNone(page.fit)
+        page.view.set("PI")
+        self.assertIn("Снимок прежних настроек", page.summary.get())
+        page.calculate_pi(); self.wait_for_task()
+        self.assertNotIn("Снимок прежних настроек", page.summary.get())
+        self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
+        page.fields["noise"].set("0.1")
+        page.identify()
+        self.assertIn("Сначала рассчитайте свободный отклик", page.summary.get())
+        page.fields["noise"].set("0.05")
         app._show_page("model_result")
         self.assertEqual(app.response_axis.get_ylabel(), "°C")
         app._show_page("heater")

@@ -10,6 +10,8 @@ import math
 import numpy as np
 
 from .background_tasks import check_cancelled
+from .calculations import tune_controller_parameters
+from .identification import identify_step, validate_step_quality, validate_uncertainty
 from .pi_control import pi_update
 
 MODEL_ID = "heated_tank"
@@ -174,15 +176,71 @@ def validate_run(run):
     return run
 
 
+def identification_data(run, noise, seed):
+    """Step experiment from a free response: power in, delayed measurement plus sensor noise out."""
+    p = run["parameters"]
+    if run["controller"] is not None or run["event"] or p["inlet_step"] or p["flow_step"] or not p["power_step"]:
+        raise ValueError("Для идентификации нужен свободный отклик без закипания на ступень одной мощности: "
+                         "ступени Tвх и расхода равны нулю.")
+    if isinstance(noise, bool) or not isinstance(noise, (int, float)) or not math.isfinite(noise) or noise < 0 \
+            or type(seed) is not int or not 0 <= seed <= 4294967295:
+        raise ValueError("Нужны шум σ ≥ 0 и целое число генератора 0…4294967295.")
+    output = np.asarray(run["measured"]) + np.random.default_rng(seed).normal(0, noise, len(run["time"]))
+    return np.asarray(run["time"]), np.asarray(run["power"]), output
+
+
+def identify(run, noise, seed, *, cancel=None, progress=None):
+    """K, T and L of the power → measured temperature channel, with the true physical values for comparison."""
+    fit = identify_step(*identification_data(run, noise, seed), cancel=cancel, progress=progress)
+    if fit["gain"] <= 0:
+        raise ValueError("Нужен положительный канал: мощность → температура.")
+    p = run["parameters"]
+    return dict({k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in fit.items()}, parameters=p,
+                noise=float(noise), seed=seed, physical=dict(gain=1 / _removal(p, p["flow"]), time_constant=time_constant(p),
+                                                             delay=p["sensor_delay"]))
+
+
+def validate_fit(fit):
+    """A stored fit must be exactly what identification gives for its own experiment."""
+    if not isinstance(fit, dict):
+        raise ValueError("Нагреватель: неверная локальная модель.")
+    try:
+        expected = identify(simulate(fit["parameters"]), fit["noise"], fit["seed"])
+    except (KeyError, TypeError) as error:
+        raise ValueError("Нагреватель: неполная локальная модель.") from error
+    for key in ("time", "input", "output", "model", "residual"):
+        values = fit.get(key)
+        if not isinstance(values, list) or len(values) != len(expected[key]) or not np.allclose(values, expected[key], rtol=1e-9, atol=1e-9):
+            raise ValueError("Нагреватель: локальная модель не соответствует эксперименту.")
+    if any(not math.isclose(fit.get(k, math.nan), expected[k], rel_tol=1e-9, abs_tol=1e-12)
+           for k in ("gain", "time_constant", "delay")) or fit.get("physical") != expected["physical"]:
+        raise ValueError("Нагреватель: K, T и L не соответствуют эксперименту.")
+    validate_step_quality(fit)
+    if "uncertainty" in fit:
+        validate_uncertainty(fit["uncertainty"], len(fit["time"]))
+    return fit
+
+
+def pi_tuning(fit):
+    """PI settings from the identified K, T and L by the project's first-order tuning rule."""
+    settings = tune_controller_parameters("PI", fit["time_constant"], fit["delay"])
+    return dict(gain=settings["proportional_gain"] / fit["gain"], integral_time=settings["integral_time"])
+
+
 FIELD_DEFAULTS = {k: format(v, "g") for k, v in DEFAULTS.items()}
-FIELD_DEFAULTS.update(setpoint="45", gain="3", integral_time="300", title="Опыт с нагревателем", prediction="", conclusion="")
-VIEWS = ("Свободный отклик", "PI")
+FIELD_DEFAULTS.update(setpoint="45", gain="3", integral_time="300", title="Опыт с нагревателем", prediction="", conclusion="",
+                      noise="0.05", seed="1")
+# Sessions saved by 1.13.0 have no identification fields; they load with the defaults.
+ADDED_FIELDS = ("noise", "seed")
+VIEWS = ("Свободный отклик", "PI", "Идентификация")
 
 
 def validate_state(state):
     """Check a heater page snapshot before a session replaces the live page."""
     if state is None:
         return None
+    if isinstance(state, dict) and isinstance(state.get("fields"), dict) and set(state["fields"]) == set(FIELD_DEFAULTS) - set(ADDED_FIELDS):
+        state = dict(state, fields={**{k: FIELD_DEFAULTS[k] for k in ADDED_FIELDS}, **state["fields"]})
     if (not isinstance(state, dict) or state.get("model_id") != MODEL_ID or state.get("model_version") != MODEL_VERSION
             or not isinstance(state.get("fields"), dict) or set(state["fields"]) != set(FIELD_DEFAULTS)
             or any(not isinstance(v, str) for v in state["fields"].values()) or state.get("view") not in VIEWS):
@@ -190,12 +248,15 @@ def validate_state(state):
     revision = state.get("revision")
     if type(revision) is not int or revision < 0:
         raise ValueError("Нагреватель: неверная версия формы.")
-    for key in ("result", "pi"):
+    for key in ("result", "pi", "fit"):
         record = state.get(key)
         if record is None:
             continue
         if not isinstance(record, dict) or type(record.get("revision")) is not int or not 0 <= record["revision"] <= revision:
             raise ValueError("Нагреватель: неверное происхождение результата.")
+        if key == "fit":
+            validate_fit(record)
+            continue
         validate_run(record)
         if (key == "pi") != (record.get("controller") is not None):
             raise ValueError("Нагреватель: опыт PI должен содержать регулятор, свободный отклик — нет.")

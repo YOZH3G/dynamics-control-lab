@@ -6,8 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from app.heater import (BOILING, DEFAULTS, FIELD_DEFAULTS, equilibrium_power, equilibrium_temperature, simulate,
-                        time_constant, validate_inputs, validate_run, validate_state)
+from app.heater import (BOILING, DEFAULTS, FIELD_DEFAULTS, equilibrium_power, equilibrium_temperature, identification_data,
+                        identify, pi_tuning, simulate, time_constant, validate_fit, validate_inputs, validate_run,
+                        validate_state)
+from app.identification import bootstrap_intervals
 from app.model_contract import read_result, write_result
 from app.physical_models import MODELS, run_model
 
@@ -93,6 +95,59 @@ class HeaterTests(unittest.TestCase):
         tampered = copy.deepcopy(common); tampered["signals"]["temperature"][50] += 1.
         with self.assertRaises(ValueError):
             MODELS.validate(tampered)
+
+
+    def test_identification_recovers_physics_and_tuned_pi_settles(self):
+        run = simulate(DEFAULTS)
+        fit = identify(run, .05, 1)
+        physical = fit["physical"]
+        self.assertAlmostEqual(physical["gain"], 1 / (.1 * 4.19 + .05))
+        self.assertAlmostEqual(physical["time_constant"], time_constant(DEFAULTS))
+        self.assertAlmostEqual(fit["gain"], physical["gain"], delta=.03 * physical["gain"])
+        self.assertAlmostEqual(fit["time_constant"], physical["time_constant"], delta=.05 * physical["time_constant"])
+        self.assertAlmostEqual(fit["delay"], DEFAULTS["sensor_delay"], delta=3.)
+        self.assertEqual(identify(run, .05, 1), fit)
+        settings = pi_tuning(fit)
+        self.assertTrue(all(math.isfinite(v) and v > 0 for v in settings.values()))
+        tuned = simulate(DEFAULTS, controller=dict(settings, setpoint=45.))
+        self.assertEqual(tuned["metrics"]["status"], "settled")
+        self.assertLess(tuned["metrics"]["overshoot_percent"], 10)
+
+    def test_identification_needs_a_power_step_and_valid_noise(self):
+        for change in (dict(inlet_step=2.), dict(flow_step=.02), dict(power_step=0.)):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                identification_data(simulate(dict(DEFAULTS, **change)), .05, 1)
+        with self.assertRaises(ValueError):
+            identification_data(simulate(DEFAULTS, controller=dict(gain=3., integral_time=300., setpoint=45.)), .05, 1)
+        run = simulate(DEFAULTS)
+        for noise, seed in ((-1., 1), (math.nan, 1), (.05, -1), (.05, True), (.05, 1.5)):
+            with self.subTest(noise=noise, seed=seed), self.assertRaises(ValueError):
+                identification_data(run, noise, seed)
+
+    def test_stored_fits_and_older_states_are_checked(self):
+        fit = dict(identify(simulate(DEFAULTS), .05, 2), revision=1)
+        fit["uncertainty"] = bootstrap_intervals(fit, replicates=20)
+        self.assertIs(validate_fit(fit), fit)
+        for key, change in (("gain", 1.01), ("output", None), ("noise", .06), ("physical", None)):
+            broken = copy.deepcopy(fit)
+            if key == "output":
+                broken["output"][300] += .1
+            elif key == "physical":
+                broken["physical"]["delay"] += 1
+            else:
+                broken[key] = fit[key] * change if key == "gain" else change
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_fit(broken)
+        state = dict(model_id="heated_tank", model_version=1, fields=dict(FIELD_DEFAULTS), revision=1, view="Идентификация",
+                     result=dict(simulate(DEFAULTS), revision=1), pi=None, fit=fit)
+        self.assertIs(validate_state(state), state)
+        with self.assertRaises(ValueError):
+            validate_state(dict(state, revision=0))
+        older = dict(state, fields={k: v for k, v in FIELD_DEFAULTS.items() if k not in ("noise", "seed")}, view="PI")
+        del older["fit"]
+        restored = validate_state(older)
+        self.assertEqual(restored["fields"], FIELD_DEFAULTS)
+        self.assertNotIn("noise", older["fields"])
 
 
 if __name__ == "__main__":

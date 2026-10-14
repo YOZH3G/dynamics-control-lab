@@ -174,7 +174,7 @@ MODELS = ModelRegistry((
                   _tank_run, _tank_result, "tank", "БАК",
                   "Бак: объёмный баланс, локальная модель и PI; уровень в метрах", _validate_tank_result),
     PhysicalModel(heater.MODEL_ID, heater.MODEL_VERSION, "Нагреватель", HEATER_PARAMETERS, HEATER_SIGNALS,
-                  (("power", "temperature"),), ("balance", "dynamics", "PI"), ("boiling",),
+                  (("power", "temperature"),), ("balance", "dynamics", "PI", "identification"), ("boiling",),
                   _heater_run, _heater_result, "heater", "НАГРЕВ",
                   "Ёмкость с нагревателем: энергетический баланс, датчик с запаздыванием и PI; температура в °C",
                   _validate_heater_result),

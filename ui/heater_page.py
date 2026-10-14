@@ -3,8 +3,9 @@
 import tkinter as tk
 from tkinter import ttk
 
-from app.heater import (FIELD_DEFAULTS, MODEL_ID, MODEL_VERSION, VIEWS, equilibrium_temperature, time_constant,
-                        validate_inputs, validate_state)
+from app.heater import (FIELD_DEFAULTS, MODEL_ID, MODEL_VERSION, VIEWS, equilibrium_temperature, identify, pi_tuning,
+                        time_constant, validate_inputs, validate_state)
+from app.identification import bootstrap_intervals, quality_text, uncertainty_text
 from app.model_contract import copy_data
 from app.physical_models import MODELS, run_model
 
@@ -25,7 +26,7 @@ class HeaterPage(ttk.Frame):
         self.fields = {k: tk.StringVar(value=v) for k, v in FIELD_DEFAULTS.items()}
         self.view = tk.StringVar(value=VIEWS[0])
         self.summary = tk.StringVar(value="Задайте параметры ёмкости и рассчитайте свободный отклик на ступень.")
-        self.result = self.pi = None
+        self.result = self.pi = self.fit = None
         self.revision = 0
         self.restoring = False
         self.columnconfigure(1, weight=1)
@@ -38,6 +39,15 @@ class HeaterPage(ttk.Frame):
             ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
             row += 1
         ttk.Button(self, text="Свободный отклик", command=self.calculate).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4); row += 1
+        ttk.Label(self, text="Идентификация: свободный отклик на ступень одной мощности, к измеренной температуре добавляется шум датчика.",
+                  style="Hint.TLabel", wraplength=320).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 2)); row += 1
+        for key, label in (("noise", "Шум датчика σ, °C"), ("seed", "Число для генератора")):
+            ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
+            ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
+            row += 1
+        for text, command in (("Оценить K, T, L по отклику", self.identify), ("Оценить неопределённость K, T, L", self.estimate_uncertainty),
+                              ("Настроить PI по модели", self.tune)):
+            ttk.Button(self, text=text, command=command).grid(row=row, column=0, columnspan=2, sticky="ew", pady=3); row += 1
         for key, label in (("setpoint", "Задание T, °C"), ("gain", "Kp, кВт/К"), ("integral_time", "Ti, с")):
             ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
             ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
@@ -53,10 +63,11 @@ class HeaterPage(ttk.Frame):
                   style="Hint.TLabel", wraplength=320).grid(row=row, column=0, columnspan=2, sticky="ew", pady=8); row += 1
         for text, command in (("Сохранить сеанс JSON", app._save_comparison_session), ("Открыть сеанс JSON", app._open_comparison_session)):
             ttk.Button(self, text=text, command=command).grid(row=row, column=0, columnspan=2, sticky="ew", pady=3); row += 1
-        for key in LABELS:
-            self.fields[key[0]].trace_add("write", self.changed)
-        for key in ("setpoint", "gain", "integral_time"):
+        for key in (*(k for k, _ in LABELS), "noise", "seed"):
             self.fields[key].trace_add("write", self.changed)
+        # Controller settings do not change the experiment: an identified model stays current.
+        for key in ("setpoint", "gain", "integral_time"):
+            self.fields[key].trace_add("write", self.settings_changed)
         self.view.trace_add("write", lambda *_: self.draw())
 
     def signature(self):
@@ -69,6 +80,16 @@ class HeaterPage(ttk.Frame):
         if getattr(self.app, "_task", None) is not None and self.app._task_kind == "heater":
             self.app._cancel_task()
         self.draw()
+
+    def settings_changed(self, *_):
+        if self.restoring:
+            return
+        if getattr(self.app, "_task", None) is not None and self.app._task_kind == "heater":
+            self.app._cancel_task()
+        self.draw()
+
+    def controller(self):
+        return {key: float(self.fields[key].get().replace(",", ".")) for key in ("gain", "integral_time", "setpoint")}
 
     def inputs(self):
         try:
@@ -96,7 +117,7 @@ class HeaterPage(ttk.Frame):
     def calculate_pi(self):
         try:
             p = self.inputs()
-            controller = {key: float(self.fields[key].get().replace(",", ".")) for key in ("gain", "integral_time", "setpoint")}
+            controller = self.controller()
         except ValueError as error:
             self.fail(error if "Нагреватель" in str(error) else "PI: Kp, Ti и задание должны быть числами."); return
         self.run("PI нагревателя", dict(parameters=p, controller=controller), self.accept_pi)
@@ -114,6 +135,52 @@ class HeaterPage(ttk.Frame):
         self.view.set("PI")
         self.draw()
         self.app._set_status("Опыт с PI рассчитан")
+
+    def identify(self):
+        if self.result is None or self.result["revision"] != self.revision:
+            self.fail("Сначала рассчитайте свободный отклик при текущих параметрах."); return
+        try:
+            noise, seed = float(self.fields["noise"].get().replace(",", ".")), int(self.fields["seed"].get())
+        except ValueError:
+            self.fail("Нужны шум σ ≥ 0 и целое число генератора 0…4294967295."); return
+        run, revision = self.result, self.revision
+
+        def accept(fit):
+            self.fit = fit
+            self.view.set("Идентификация")
+            self.draw()
+            self.app._set_status("Идентификация нагревателя выполнена")
+        self.app._start_task("Идентификация нагревателя", lambda cancel, progress: dict(
+            identify(run, noise, seed, cancel=cancel, progress=progress), revision=revision), accept, "heater")
+
+    def estimate_uncertainty(self):
+        if self.fit is None or self.fit["revision"] != self.revision:
+            self.fail("Сначала оцените K, T, L по актуальному отклику."); return
+        fit = self.fit
+
+        def accept(record):
+            if self.fit is not fit or fit["revision"] != self.revision:
+                return
+            fit["uncertainty"] = record
+            self.draw()
+            self.app._set_status("Интервалы K, T и L нагревателя рассчитаны")
+        self.app._start_task("Неопределённость K, T, L нагревателя", lambda cancel, progress: bootstrap_intervals(
+            fit, cancel=cancel, progress=progress), accept, "heater")
+
+    def tune(self):
+        if self.fit is None or self.fit["revision"] != self.revision:
+            self.fail("Сначала оцените K, T, L по актуальному отклику."); return
+        settings = pi_tuning(self.fit)
+        self.fields["gain"].set(format(settings["gain"], ".4g"))
+        self.fields["integral_time"].set(format(settings["integral_time"], ".4g"))
+        self.app._set_status("Kp и Ti рассчитаны по модели; проверьте их кнопкой «Рассчитать с PI»")
+
+    def fit_text(self, fit):
+        physical = fit["physical"]
+        return (f"Оценка по отклику: K={fit['gain']:.4g} К/кВт, T={fit['time_constant']:.4g} с, L={fit['delay']:.4g} с; "
+                f"RMSE {fit['rmse']:.3g} К при шуме σ={fit['noise']:g} °C. Физические значения: K={physical['gain']:.4g} К/кВт, "
+                f"τ={physical['time_constant']:.4g} с, запаздывание датчика {physical['delay']:g} с.\n" + quality_text(fit)
+                + ("\n" + uncertainty_text(fit["uncertainty"]) if fit.get("uncertainty") else ""))
 
     def describe(self, record):
         p = record["parameters"]
@@ -141,8 +208,15 @@ class HeaterPage(ttk.Frame):
         app._remove_controller_axis(); app.analysis_panel.remove_map_colorbar(); app.analysis_panel.clear_map_click_callback()
         app._style_axis(app.disturbance_axis, "Время, с", "Мощность, кВт")
         app._style_axis(app.response_axis, "Время, с", "Температура, °C")
-        record = self.pi if self.view.get() == "PI" else self.result
-        if record is not None:
+        view = self.view.get()
+        record = self.pi if view == "PI" else self.fit if view == "Идентификация" else self.result
+        if record is not None and view == "Идентификация":
+            app.disturbance_axis.plot(record["time"], record["input"], label="Мощность")
+            app.response_axis.plot(record["time"], record["output"], label="Измеренная с шумом")
+            app.response_axis.plot(record["time"], record["model"], label="Модель K, T, L")
+            stale = record["revision"] != self.revision
+            self.summary.set(("Снимок прежних настроек; повторите расчёт. " if stale else "") + self.fit_text(record))
+        elif record is not None:
             app.disturbance_axis.plot(record["time"], record["power"], label="Мощность")
             app.disturbance_axis.axhline(record["parameters"]["power_limit"], color="#B91C1C", linestyle="--", label="Pmax")
             app.response_axis.plot(record["time"], record["temperature"], label="Температура в ёмкости")
@@ -150,9 +224,14 @@ class HeaterPage(ttk.Frame):
             if record["controller"] is not None:
                 app.response_axis.axhline(record["controller"]["setpoint"], color="#64748B", linestyle="--", label="Задание")
             stale = record["revision"] != self.revision
+            if record["controller"] is not None:
+                try:
+                    stale = stale or self.controller() != record["controller"]
+                except ValueError:
+                    stale = True
             self.summary.set(("Снимок прежних настроек; повторите расчёт. " if stale else "") + self.describe(record))
         app.primary_chart_title.set("Мощность нагревателя"); app.primary_chart_subtitle.set("Мощность в кВт; ступени температуры входа и расхода — в параметрах")
-        app.response_chart_title.set(f"Нагреватель: {self.view.get()}")
+        app.response_chart_title.set(f"Нагреватель: {view}")
         app.response_subtitle.set("Энергетический баланс перемешиваемой ёмкости; датчик с чистым запаздыванием")
         for axis, canvas in ((app.disturbance_axis, app.disturbance_canvas), (app.response_axis, app.response_canvas)):
             axis.figure.set_layout_engine("constrained")
@@ -164,7 +243,7 @@ class HeaterPage(ttk.Frame):
 
     def capture(self, *, copy_results=True):
         snapshot = dict(model_id=MODEL_ID, model_version=MODEL_VERSION, fields={k: v.get() for k, v in self.fields.items()},
-                        revision=self.revision, view=self.view.get(), result=self.result, pi=self.pi)
+                        revision=self.revision, view=self.view.get(), result=self.result, pi=self.pi, fit=self.fit)
         return copy_data(snapshot) if copy_results else snapshot
 
     def restore(self, state):
@@ -176,6 +255,7 @@ class HeaterPage(ttk.Frame):
             self.revision = 0 if state is None else state["revision"]
             self.result = None if state is None else state["result"]
             self.pi = None if state is None else state["pi"]
+            self.fit = None if state is None else state.get("fit")
             self.view.set(VIEWS[0] if state is None else state["view"])
         finally:
             self.restoring = False
