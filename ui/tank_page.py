@@ -244,7 +244,7 @@ class TankPage(ttk.Frame):
 
     def draw(self):
         if getattr(self.app,"current_page",None) != "tank": return
-        app=self.app; app._remove_controller_axis(); app._remove_map_colorbar(); app._clear_map_click_callback()
+        app=self.app; app._remove_controller_axis(); app.analysis_panel.remove_map_colorbar(); app.analysis_panel.clear_map_click_callback()
         if self.view.get() == SENSITIVITY_VIEW:
             self.sensitivity.draw(); return
         app._style_axis(app.disturbance_axis,"Время, с","Расход, м³/с")

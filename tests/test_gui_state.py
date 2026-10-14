@@ -756,16 +756,16 @@ class GuiStateTests(unittest.TestCase):
     def test_map_selection_explains_independent_observations(self):
         from types import SimpleNamespace
         result = self.app.last_calculation
-        self.app.map_data = controller_setting_map(
+        self.app.analysis_panel.map_data = controller_setting_map(
             result["chain"], result["model_values"], result["component_fraction"],
             result["flow_fraction"], result["dynamics"], "PI", (6,), (2,), 1, 0.8,
         )
         self.app._show_page("tuning_map")
-        self.app._select_map_cell(SimpleNamespace(inaxes=self.app.disturbance_axis, xdata=0, ydata=0))
-        description = self.app.map_selection_summary.get()
+        self.app.analysis_panel.select_map_cell(SimpleNamespace(inaxes=self.app.disturbance_axis, xdata=0, ydata=0))
+        description = self.app.analysis_panel.map_selection_summary.get()
         self.assertIn("Насыщение η", description)
         self.assertIn("Вывод относится только к длительности этого опыта", description)
-        self.assertEqual(self.app.map_selection, (0, 0))
+        self.assertEqual(self.app.analysis_panel.map_selection, (0, 0))
 
     def setUp(self):
         try:
@@ -795,8 +795,8 @@ class GuiStateTests(unittest.TestCase):
         original = app.last_calculation
         ticks = []
         self.root.after(0, lambda: ticks.append(True))
-        app.map_grid_size.set("15")
-        app._calculate_tuning_map()
+        app.analysis_panel.map_grid_size.set("15")
+        app.analysis_panel.calculate_map()
         task = app._task
         self.root.update()
         self.assertTrue(ticks)
@@ -804,7 +804,7 @@ class GuiStateTests(unittest.TestCase):
         app._cancel_task()
         task.thread.join(2)
         self.assertFalse(task.thread.is_alive())
-        self.assertIsNone(app.map_data)
+        self.assertIsNone(app.analysis_panel.map_data)
         self.assertIs(app.last_calculation, original)
 
     def test_changed_form_cancels_work_but_equivalent_number_does_not(self):
@@ -991,13 +991,13 @@ class GuiStateTests(unittest.TestCase):
 
     def test_sensitivity_units_change_without_changing_values(self):
         app = self.app
-        app.sensitivity_parameter.set("Возмущение состава")
-        app.sensitivity_values.set("0,1; 0,25")
-        self.assertEqual(app._parse_sensitivity_values(), (0.1, 0.25))
+        app.analysis_panel.sensitivity_parameter.set("Возмущение состава")
+        app.analysis_panel.sensitivity_values.set("0,1; 0,25")
+        self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
         app.disturbance_units.set("%")
         app._switch_disturbance_units()
-        self.assertEqual(app._parse_sensitivity_values(), (0.1, 0.25))
-        self.assertEqual(app.sensitivity_values.get(), "1E+1; 25")
+        self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
+        self.assertEqual(app.analysis_panel.sensitivity_values.get(), "1E+1; 25")
 
     def test_learning_route_keeps_free_navigation_and_visits_all_steps(self):
         app = self.app

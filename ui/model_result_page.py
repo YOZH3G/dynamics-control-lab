@@ -51,7 +51,7 @@ class ModelResultPage(ttk.Frame):
         self.summary.set("Сначала выполните расчёт выбранной модели." if result is None else
                          f"{model.name}: {len(result['time'])} точек; версия расчёта {model.version}. Событий: {len(result['events'])}. Снимок последнего расчёта; изменения формы в него не входят.")
         app = self.app
-        app._remove_controller_axis(); app._remove_map_colorbar(); app._clear_map_click_callback()
+        app._remove_controller_axis(); app.analysis_panel.remove_map_colorbar(); app.analysis_panel.clear_map_click_callback()
         groups = {} if result is None else signal_groups(result, MODELS)
         for role, axis, canvas in (("input", app.disturbance_axis, app.disturbance_canvas),
                                    ("output", app.response_axis, app.response_canvas)):
