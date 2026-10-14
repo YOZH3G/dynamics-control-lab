@@ -126,7 +126,7 @@ class ComparisonPanel:
         actions.columnconfigure((0, 1, 2, 3), weight=1)
         export_menu = tk.Menu(actions, tearoff=False)
         for label, command in (("CSV выбранных", self.export_csv),
-                               ("PNG выбранных", self.app._export_graphs_png),
+                               ("PNG выбранных", self.app.export_panel.export_graphs_png),
                                ("HTML всех опытов", self.save_html_report),
                                ("PDF всех опытов", self.save_pdf_report)):
             export_menu.add_command(label=label, command=command)

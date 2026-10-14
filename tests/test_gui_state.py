@@ -959,7 +959,7 @@ class GuiStateTests(unittest.TestCase):
         app.disturbance_units.set("%")
         app._switch_disturbance_units()
         self.assertEqual(app.component_value.get(), "12.345678901234567")
-        self.assertNotIn("Параметры изменены", app.export_summary.get())
+        self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
         app._calculate()
         self.wait_for_task()
         np.testing.assert_array_equal(app.last_calculation["final_response"], original)
@@ -970,7 +970,7 @@ class GuiStateTests(unittest.TestCase):
         app._restore_input_state(saved, preserve_result=True)
         self.assertEqual(app._disturbance_units, "percent")
         self.assertEqual(app.component_value.get(), "12.345678901234567")
-        self.assertNotIn("Параметры изменены", app.export_summary.get())
+        self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
 
     def test_unit_switch_preserves_running_task_and_rejects_invalid_draft(self):
         from threading import Event
@@ -1025,11 +1025,11 @@ class GuiStateTests(unittest.TestCase):
     def test_numeric_equivalence_and_inactive_fields_do_not_make_result_stale(self):
         self.app.component_value.set("-0,1500")
         self.app.integral_time.set("999")
-        self.assertNotIn("Параметры изменены", self.app.export_summary.get())
+        self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
         self.app.component_value.set("-0.2")
-        self.assertIn("Параметры изменены", self.app.export_summary.get())
+        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
         self.app.component_value.set("-0.15")
-        self.assertNotIn("Параметры изменены", self.app.export_summary.get())
+        self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
 
     def test_chain_and_controller_changes_keep_the_same_calculation_snapshot(self):
         result = self.app.last_calculation
@@ -1037,7 +1037,7 @@ class GuiStateTests(unittest.TestCase):
         self.app._select_chain("lean_gas")
         self.assertIs(self.app.last_calculation, result)
         self.assertEqual(result["chain"], RICH_ABSORBENT)
-        self.assertIn("Параметры изменены", self.app.export_summary.get())
+        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
         self.app._set_controller_mode(True)
         self.assertIs(self.app.last_calculation, result)
         self.assertEqual(result["input_state"], snapshot)
@@ -1084,7 +1084,7 @@ class GuiStateTests(unittest.TestCase):
         for key in ("control", "commanded_control", "measurement", "final_response"):
             np.testing.assert_array_equal(restored[key], result[key])
         app.extension_values["actuator_time_constant"].set("3")
-        self.assertIn("Параметры изменены", app.export_summary.get())
+        self.assertIn("Параметры изменены", app.export_panel.export_summary.get())
         editor = ScenarioEditorDialog(self.root, self.store, lambda *_: None,
                                       lambda *_: None, lambda: None, main.BACKGROUND)
         try:
@@ -1193,7 +1193,7 @@ class GuiStateTests(unittest.TestCase):
         self.app.model_dialog._variables["eta"].set("70")
         self.app.model_dialog._apply_values()
         self.assertIs(self.app.last_calculation, result)
-        self.assertIn("Параметры изменены", self.app.export_summary.get())
+        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
         self.app.comparison_page.add_current()
         self.assertIn("Теория", self.app.comparison_page.details.get())
         captured = []
@@ -1208,7 +1208,7 @@ class GuiStateTests(unittest.TestCase):
             return Path(path)
 
         with patch.object(main.filedialog, "asksaveasfilename", return_value=str(Path(self.directory.name) / "report.html")):
-            self.app._save_lab_report("html", writer)
+            self.app.export_panel.save_lab_report("html", writer)
         self.assertEqual(captured, [result])
 
 

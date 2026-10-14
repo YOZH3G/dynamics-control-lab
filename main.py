@@ -24,14 +24,6 @@ from app.calculations import (
 )
 from app.comparison import MAX_COMPARISON_RUNS
 from app.background_tasks import BackgroundTask, CalculationCancelled
-from app.exporting import (
-    build_protocol,
-    save_graphs,
-    write_csv,
-    write_html_report,
-    write_pdf_report,
-    write_protocol,
-)
 from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
 from app.settings_store import SettingsStore
@@ -47,6 +39,7 @@ from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
 from ui.analysis_panel import AnalysisPanel
 from ui.assignment_panel import AssignmentPanel
+from ui.export_panel import ExportPanel
 from ui.comparison_panel import ComparisonPanel
 from ui.scenario_library import ScenarioLibrary
 from ui.theme import (
@@ -180,12 +173,11 @@ class DynamicsControlApp(ttk.Frame):
         self.status_text = tk.StringVar(value="Готово к расчёту")
         self.active_scenario = tk.StringVar(value="Сценарий ещё не применён.")
         self.applied_scenario = copy.deepcopy(self.scenario_library.scenarios[0])
-        self.export_summary = tk.StringVar(value="Сначала выполните расчёт.")
-        self.export_buttons = []
         self.last_calculation = None
         self.last_prediction = None
         self.controller_signal_axis = None
         self.analysis_panel = AnalysisPanel(self)
+        self.export_panel = ExportPanel(self)
         self.comparison_page = ComparisonPanel(self)
         self.assignment_panel = AssignmentPanel(self)
         self.current_page = self.settings["last_page"]
@@ -428,7 +420,7 @@ class DynamicsControlApp(ttk.Frame):
         self.analysis_panel.build_sensitivity_card(self.page_contents["sensitivity"])
         self.analysis_panel.build_map_card(self.page_contents["tuning_map"])
         self._build_scenarios_card(self.page_contents["scenarios"])
-        self._build_export_card(self.page_contents["export"])
+        self.export_panel.build(self.page_contents["export"])
         self.identification_page = IdentificationPage(self.page_contents["identification"], self)
         self.identification_page.grid(row=0, column=0, sticky="nsew")
         self.tank_page = TankPage(self.page_contents["tank"], self)
@@ -1296,51 +1288,6 @@ class DynamicsControlApp(ttk.Frame):
         self.scenario_library.build(parent)
         self.assignment_panel.build(parent)
 
-    def _build_export_card(self, parent):
-        card = self._card(parent, 0)
-        ttk.Label(card, text="Материалы для отчёта", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
-        ttk.Label(
-            card,
-            textvariable=self.export_summary,
-            style="Muted.TLabel",
-            wraplength=330,
-        ).grid(row=1, column=0, sticky="w", pady=(0, 14))
-        actions = (
-            ("Сохранить два графика PNG", self._export_graphs_png),
-            ("Экспортировать точки CSV", self._export_csv),
-            ("Сохранить отчёт HTML", self._save_html_report),
-            ("Сохранить отчёт PDF", self._save_pdf_report),
-            ("Копировать параметры и результаты", self._copy_protocol),
-            ("Сохранить протокол TXT", self._save_protocol),
-        )
-        for row, (label, command) in enumerate(actions, start=2):
-            button = ttk.Button(
-                card,
-                text=label,
-                command=command,
-                style="Primary.TButton" if row == 2 else "Secondary.TButton",
-                state="disabled",
-            )
-            button.grid(row=row, column=0, sticky="ew", pady=(0, 8))
-            self.export_buttons.append(button)
-
-        note = self._card(parent, 1)
-        ttk.Label(note, text="Состав файлов", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
-        ttk.Label(
-            note,
-            text=(
-                "PNG сохраняет оба текущих графика. CSV содержит временную сетку, воздействие, "
-                "целевые значения и рассчитанные отклики. Протокол TXT включает параметры и показатели."
-            ),
-            style="Body.TLabel",
-            wraplength=330,
-            justify="left",
-        ).grid(row=1, column=0, sticky="w")
-
     def _build_chart_card(
         self,
         parent,
@@ -1692,7 +1639,7 @@ class DynamicsControlApp(ttk.Frame):
             self._update_transition_metrics(result["metrics"], result["dynamics"], result["response_start"])
             self._draw_calculation_result(result)
             self.add_comparison_button.configure(state="normal")
-            for button in self.export_buttons:
+            for button in self.export_panel.export_buttons:
                 button.configure(state="normal")
         self._restore_input_state(laboratory["input_state"], draft=True, preserve_result=True)
         if result is None:
@@ -1838,7 +1785,7 @@ class DynamicsControlApp(ttk.Frame):
                 self.identification_page.draw()
             return
         stale = self._normalized_input_state(self._capture_input_state()) != self._normalized_input_state(self.last_calculation["input_state"])
-        self.export_summary.set("Параметры изменены — пересчитайте опыт. Экспорт относится к последнему расчёту."
+        self.export_panel.export_summary.set("Параметры изменены — пересчитайте опыт. Экспорт относится к последнему расчёту."
                                 if stale else "Расчёт готов к экспорту.")
         chain_name = "обеднённый газ" if self.last_calculation["chain"] == LEAN_GAS else "насыщенный абсорбент"
         self.response_subtitle.set(f"Параметры изменены — последний расчёт: {chain_name}" if stale
@@ -1918,117 +1865,6 @@ class DynamicsControlApp(ttk.Frame):
         if not preserve_result:
             self._clear_result_values()
             self._draw_static_charts()
-
-    def _export_graphs_png(self):
-        self.time_cursor.clear()
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Сохранить графики",
-            defaultextension=".png",
-            filetypes=(("PNG", "*.png"),),
-            initialfile="dynamics_control_result.png",
-        )
-        if not selected:
-            return
-        try:
-            signal_path, response_path = save_graphs(
-                self.disturbance_axis.figure,
-                self.response_axis.figure,
-                selected,
-            )
-        except OSError as error:
-            self._set_status(f"Не удалось сохранить PNG: {error}", error=True)
-            return
-        self.export_summary.set(f"Сохранены: {signal_path.name}, {response_path.name}.")
-        self._set_status("Графики сохранены в PNG")
-
-    def _export_csv(self):
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Экспортировать точки",
-            defaultextension=".csv",
-            filetypes=(("CSV", "*.csv"),),
-            initialfile="dynamics_control_result.csv",
-        )
-        if not selected:
-            return
-        try:
-            path = write_csv(selected, self.last_calculation)
-        except OSError as error:
-            self._set_status(f"Не удалось сохранить CSV: {error}", error=True)
-            return
-        self.export_summary.set(f"Точки сохранены: {path.name}.")
-        self._set_status("Точки экспортированы в CSV")
-
-    def _copy_protocol(self):
-        protocol = self._build_protocol_text()
-        self.root.clipboard_clear()
-        self.root.clipboard_append(protocol)
-        self.root.update_idletasks()
-        self.export_summary.set("Параметры и результаты скопированы в буфер обмена.")
-        self._set_status("Протокол скопирован")
-
-    def _save_protocol(self):
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Сохранить протокол",
-            defaultextension=".txt",
-            filetypes=(("Текстовый файл", "*.txt"),),
-            initialfile="dynamics_control_protocol.txt",
-        )
-        if not selected:
-            return
-        try:
-            path = write_protocol(selected, self._build_protocol_text())
-        except OSError as error:
-            self._set_status(f"Не удалось сохранить протокол: {error}", error=True)
-            return
-        self.export_summary.set(f"Протокол сохранён: {path.name}.")
-        self._set_status("Протокол сохранён")
-
-    def _save_html_report(self):
-        self._save_lab_report("html", write_html_report)
-
-    def _save_pdf_report(self):
-        self._save_lab_report("pdf", write_pdf_report)
-
-    def _save_lab_report(self, format_name, writer):
-        self.time_cursor.clear()
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Сохранить отчёт лабораторной работы",
-            defaultextension=f".{format_name}",
-            filetypes=((format_name.upper(), f"*.{format_name}"),),
-            initialfile=f"dynamics_control_lab_report.{format_name}",
-        )
-        if not selected:
-            return
-        title = self.last_calculation["title"]
-        try:
-            self._draw_calculation_result(self.last_calculation)
-            self.disturbance_canvas.draw()
-            self.response_canvas.draw()
-            self._mark_result_stale()
-            path = writer(
-                selected, self.last_calculation, title, self.last_calculation["lesson"],
-                self.last_calculation["evaluation"], self.assignment_panel.student_name.get(),
-                self.assignment_panel.student_conclusion.get(),
-                (self.disturbance_axis.figure, self.response_axis.figure),
-                prediction=self.last_calculation["prediction"],
-                comparison_runs=self.comparison_page.runs,
-            )
-        except OSError as error:
-            self._set_status(
-                f"Не удалось сохранить {format_name.upper()}-отчёт: {error}",
-                error=True,
-            )
-            return
-        self.export_summary.set(f"{format_name.upper()}-отчёт сохранён: {path.name}.")
-        self._set_status(f"{format_name.upper()}-отчёт сохранён")
-
-    def _build_protocol_text(self):
-        title = self.last_calculation["title"]
-        return build_protocol(self.last_calculation, title)
 
     def _active_scenario_title(self, include_prefix=False):
         title = self.active_scenario.get()
@@ -2431,9 +2267,9 @@ class DynamicsControlApp(ttk.Frame):
         self.last_prediction = prediction
         result["prediction"] = copy.deepcopy(prediction)
         self.add_comparison_button.configure(state="normal")
-        for button in self.export_buttons:
+        for button in self.export_panel.export_buttons:
             button.configure(state="normal")
-        self.export_summary.set("Расчёт готов к экспорту." if result["setpoint_reachable"] is not False
+        self.export_panel.export_summary.set("Расчёт готов к экспорту." if result["setpoint_reachable"] is not False
                                 else "Задание недостижимо при допустимых η; показано насыщение регулятора.")
         self.assignment_panel.evaluate(prediction, result["prediction_outcome"])
         result["evaluation"] = copy.deepcopy(self.assignment_panel.assignment_evaluation) if prediction is not None else None
@@ -2549,11 +2385,11 @@ class DynamicsControlApp(ttk.Frame):
         self.last_prediction = None
         if hasattr(self, "add_comparison_button"):
             self.add_comparison_button.configure(state="disabled")
-        if hasattr(self, "export_buttons"):
-            for button in self.export_buttons:
+        if hasattr(self.export_panel, "export_buttons"):
+            for button in self.export_panel.export_buttons:
                 button.configure(state="disabled")
-        if hasattr(self, "export_summary"):
-            self.export_summary.set("Сначала выполните расчёт.")
+        if hasattr(self.export_panel, "export_summary"):
+            self.export_panel.export_summary.set("Сначала выполните расчёт.")
         self.baseline_result.set("—")
         self.disturbance_result.set("—")
         self.calculated_result.set("—")
