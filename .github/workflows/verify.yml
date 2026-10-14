@@ -55,6 +55,7 @@ jobs:
             dist/DynamicsControlLab.exe
             build/release-check.json
             build/performance-check.json
+            build/startup.json
             output/pdf/docs.pdf
             requirements.txt
             requirements-dev.txt

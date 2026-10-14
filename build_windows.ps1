@@ -5,6 +5,27 @@ if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller завершил сборку с кодом $LASTEXITCODE."
 }
 
+$exe = (Resolve-Path "dist\DynamicsControlLab.exe").Path
+
+# Time from process start to a constructed window, first (cold) and second launch.
+function Measure-Startup([string]$Name) {
+    $output = Join-Path (Get-Location) "build\startup-$Name.json"
+    $ready = [System.IO.Path]::ChangeExtension($output, ".ready")
+    Remove-Item -LiteralPath $ready -ErrorAction SilentlyContinue
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $process = Start-Process -FilePath $exe -ArgumentList @("--performance-check", ('"' + $output + '"')) -WindowStyle Hidden -PassThru
+    while (-not (Test-Path -LiteralPath $ready) -and $clock.Elapsed.TotalSeconds -lt 120 -and -not $process.HasExited) {
+        Start-Sleep -Milliseconds 50
+    }
+    $seconds = if (Test-Path -LiteralPath $ready) { [math]::Round($clock.Elapsed.TotalSeconds, 3) } else { $null }
+    Stop-Process -Id $process.Id -ErrorAction SilentlyContinue
+    $process.WaitForExit(10000) | Out-Null
+    return $seconds
+}
+$startup = [ordered]@{ first_launch_to_window_s = (Measure-Startup "first"); second_launch_to_window_s = (Measure-Startup "second") }
+$startup | ConvertTo-Json | Set-Content -LiteralPath "build\startup.json" -Encoding utf8
+Write-Host "Запуск EXE до готового окна: первый $($startup.first_launch_to_window_s) с, повторный $($startup.second_launch_to_window_s) с."
+
 $taskOutput = Join-Path (Get-Location) "build\release-check.json"
 $taskProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab.exe").Path -ArgumentList @("--smoke-test", ('"' + $taskOutput + '"')) -WindowStyle Hidden -PassThru
 if (-not $taskProcess.WaitForExit(60000)) {
