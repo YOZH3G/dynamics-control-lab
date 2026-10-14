@@ -43,8 +43,6 @@ from app.laboratory import (
     CORRECTION_OPTIONS,
     DIRECTION_OPTIONS,
     FASTEST_OPTIONS,
-    VARIANT_COUNT,
-    builtin_variant,
     evaluate_prediction,
 )
 from app.scenario_store import ScenarioStore
@@ -61,7 +59,7 @@ from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
 from ui.comparison_panel import ComparisonPanel
-from ui.scenario_editor import ScenarioEditorDialog
+from ui.scenario_library import ScenarioLibrary
 from ui.theme import (
     ACCENT,
     ACCENT_ACTIVE,
@@ -111,15 +109,14 @@ class DynamicsControlApp(ttk.Frame):
         self.chain = LEAN_GAS
         self.model_values = DEFAULT_MODEL_VALUES.copy()
         self.model_dialog = None
-        self.scenario_editor = None
-        self.scenario_store = ScenarioStore(scenario_path) if scenario_path is not None else ScenarioStore()
+        self.scenario_library = ScenarioLibrary(
+            self, ScenarioStore(scenario_path) if scenario_path is not None else ScenarioStore()
+        )
         self.settings_store = SettingsStore(
-            self.scenario_store.path.with_name("settings.json")
+            self.scenario_library.store.path.with_name("settings.json")
         )
         self.settings = self.settings_store.load()
         self.sidebar_collapsed = self.settings["sidebar_collapsed"]
-        self.scenarios = self.scenario_store.scenarios
-        self.scenarios_by_name = {scenario["name"]: scenario for scenario in self.scenarios}
         self.pages = {}
         self.model_results = {}
         self.nav_buttons = {}
@@ -192,18 +189,11 @@ class DynamicsControlApp(ttk.Frame):
         self.primary_chart_subtitle = tk.StringVar(value="Изменение относительно базового уровня")
         self.response_chart_title = tk.StringVar(value="Кривая разгона")
         self.status_text = tk.StringVar(value="Готово к расчёту")
-        self.selected_scenario = tk.StringVar(value=self.scenarios[0]["name"])
-        self.selected_variant = tk.StringVar(value="1")
-        self.scenario_description = tk.StringVar(value=self.scenarios[0]["description"])
         self.active_scenario = tk.StringVar(value="Сценарий ещё не применён.")
-        self.teacher_mode = tk.BooleanVar(value=False)
-        self.scenario_storage_status = tk.StringVar(
-            value=self._scenario_storage_text()
-        )
         self.assignment_tolerance_percent = 5.0
         self.assignment_absolute_tolerance = 1e-6
-        self.current_lesson = self.scenarios[0]["lesson"]
-        self.applied_scenario = copy.deepcopy(self.scenarios[0])
+        self.current_lesson = self.scenario_library.scenarios[0]["lesson"]
+        self.applied_scenario = copy.deepcopy(self.scenario_library.scenarios[0])
         self.assignment_attempts = 0
         self.assignment_evaluation = None
         self.learning_mode = tk.BooleanVar(value=False)
@@ -279,9 +269,9 @@ class DynamicsControlApp(ttk.Frame):
                          self.map_gain_max, self.map_integral_min, self.map_integral_max,
                          self.map_derivative_time, self.map_grid_size):
             variable.trace_add("write", self._invalidate_task)
-        if self.scenario_store.warning:
-            self._set_status(self.scenario_store.warning, error=True)
-        self.autosave_path = self.scenario_store.path.with_name("laboratory.autosave.json")
+        if self.scenario_library.store.warning:
+            self._set_status(self.scenario_library.store.warning, error=True)
+        self.autosave_path = self.scenario_library.store.path.with_name("laboratory.autosave.json")
         self._autosave_snapshot = None
         self._autosave_task = None
         self._restore_autosave()
@@ -1569,80 +1559,7 @@ class DynamicsControlApp(ttk.Frame):
         self.add_comparison_button.grid(row=2, column=0, sticky="ew")
 
     def _build_scenarios_card(self, parent):
-        scenario_card = self._card(parent, 0)
-        ttk.Label(scenario_card, text="Готовый сценарий", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 10)
-        )
-        self.scenario_box = ttk.Combobox(
-            scenario_card,
-            textvariable=self.selected_scenario,
-            values=tuple(scenario["name"] for scenario in self.scenarios),
-            state="readonly",
-        )
-        self.scenario_box.grid(row=1, column=0, sticky="ew")
-        self.scenario_box.bind("<<ComboboxSelected>>", self._update_scenario_description)
-        ttk.Label(scenario_card, text="Вариант задания", style="Body.TLabel").grid(
-            row=2, column=0, sticky="w", pady=(10, 4)
-        )
-        self.scenario_variant_box = ttk.Combobox(
-            scenario_card,
-            textvariable=self.selected_variant,
-            values=tuple(str(number) for number in range(1, VARIANT_COUNT + 1)),
-            state="readonly",
-            width=8,
-        )
-        self.scenario_variant_box.grid(row=3, column=0, sticky="w")
-        self.scenario_variant_box.bind("<<ComboboxSelected>>", self._update_scenario_description)
-        ttk.Label(
-            scenario_card,
-            textvariable=self.scenario_description,
-            style="Muted.TLabel",
-            wraplength=330,
-        ).grid(row=4, column=0, sticky="w", pady=(8, 12))
-        ttk.Button(
-            scenario_card,
-            text="Применить сценарий",
-            command=self._apply_scenario,
-            style="Primary.TButton",
-        ).grid(row=5, column=0, sticky="ew")
-        ttk.Label(
-            scenario_card,
-            textvariable=self.active_scenario,
-            style="Muted.TLabel",
-            wraplength=330,
-        ).grid(row=6, column=0, sticky="w", pady=(8, 0))
-
-        ttk.Separator(scenario_card).grid(row=7, column=0, sticky="ew", pady=14)
-        ttk.Checkbutton(
-            scenario_card,
-            text="Режим преподавателя",
-            variable=self.teacher_mode,
-            command=self._toggle_teacher_mode,
-        ).grid(row=8, column=0, sticky="w")
-        self.teacher_editor_button = ttk.Button(
-            scenario_card,
-            text="Открыть редактор сценариев",
-            command=self._open_scenario_editor,
-            style="Secondary.TButton",
-        )
-        self.teacher_editor_button.grid(row=9, column=0, sticky="ew", pady=(10, 0))
-        self.teacher_storage_label = ttk.Label(
-            scenario_card,
-            textvariable=self.scenario_storage_status,
-            style="Muted.TLabel",
-            wraplength=330,
-        )
-        self.teacher_storage_label.grid(row=10, column=0, sticky="w", pady=(8, 0))
-        self.restore_scenarios_button = ttk.Button(
-            scenario_card,
-            text="Восстановить резервную копию",
-            command=self._restore_scenario_backup,
-            style="Secondary.TButton",
-        )
-        self.restore_scenarios_button.grid(row=11, column=0, sticky="ew", pady=(8, 0))
-        self.teacher_editor_button.grid_remove()
-        self.teacher_storage_label.grid_remove()
-        self.restore_scenarios_button.grid_remove()
+        self.scenario_library.build(parent)
 
         lesson_card = self._card(parent, 1, padding=(14, 12))
         ttk.Label(lesson_card, text="Учебное задание", style="CardTitle.TLabel").grid(
@@ -1857,27 +1774,6 @@ class DynamicsControlApp(ttk.Frame):
 
         return axis, canvas, toolbar
 
-    def _update_scenario_description(self, _event=None):
-        scenario = self.scenarios_by_name[self.selected_scenario.get()]
-        if self.scenario_store.is_builtin(scenario["name"]):
-            self.scenario_variant_box.configure(state="readonly")
-            number = int(self.selected_variant.get())
-            self.scenario_description.set(
-                f"{builtin_variant(scenario, number)['description']} Вариант {number} из {VARIANT_COUNT}."
-            )
-        else:
-            self.selected_variant.set("1")
-            self.scenario_variant_box.configure(state="disabled")
-            self.scenario_description.set(scenario["description"])
-
-    def _apply_scenario(self):
-        scenario = self.scenarios_by_name[self.selected_scenario.get()]
-        number = int(self.selected_variant.get())
-        if self.scenario_store.is_builtin(scenario["name"]):
-            self._apply_scenario_data(builtin_variant(scenario, number), number)
-        else:
-            self._apply_scenario_data(scenario)
-
     def _apply_scenario_data(self, scenario, variant_number=None):
         self._cancel_task(announce=False)
         self._undo_clear = None
@@ -1949,26 +1845,10 @@ class DynamicsControlApp(ttk.Frame):
         self._show_page("scenarios")
         self._set_status("Сценарий применён — выполните расчёт")
 
-    def _toggle_teacher_mode(self):
-        if self.teacher_mode.get():
-            self.teacher_editor_button.grid()
-            self.teacher_storage_label.grid()
-            if self.scenario_store.recovery_available:
-                self.restore_scenarios_button.grid()
-            self._set_status("Режим преподавателя включён")
-        else:
-            if self.scenario_editor is not None and self.scenario_editor.winfo_exists():
-                if not self.scenario_editor.request_close():
-                    self.teacher_mode.set(True)
-                    return
-            self.teacher_editor_button.grid_remove()
-            self.teacher_storage_label.grid_remove()
-            self.restore_scenarios_button.grid_remove()
-            self._set_status("Режим преподавателя выключен")
-
     def _close_application(self):
-        if self.scenario_editor is not None and self.scenario_editor.winfo_exists():
-            if not self.scenario_editor.request_close():
+        editor = self.scenario_library.editor
+        if editor is not None and editor.winfo_exists():
+            if not editor.request_close():
                 return
         self._cancel_task(announce=False)
         for job in self._layout_jobs:
@@ -1994,63 +1874,6 @@ class DynamicsControlApp(ttk.Frame):
         except OSError:
             pass
         self.root.destroy()
-
-    def _open_scenario_editor(self):
-        if self.scenario_editor is not None and self.scenario_editor.winfo_exists():
-            self.scenario_editor.lift()
-            self.scenario_editor.focus_force()
-            return
-        self.scenario_editor = ScenarioEditorDialog(
-            self.root,
-            self.scenario_store,
-            self._refresh_scenarios,
-            self._preview_scenario,
-            lambda: setattr(self, "scenario_editor", None),
-            BACKGROUND,
-        )
-
-    def _refresh_scenarios(self, selected_name=None, status=None):
-        self.scenarios = self.scenario_store.scenarios
-        self.scenarios_by_name = {scenario["name"]: scenario for scenario in self.scenarios}
-        names = tuple(self.scenarios_by_name)
-        self.scenario_box.configure(values=names)
-        if selected_name not in self.scenarios_by_name:
-            selected_name = names[0]
-        self.selected_scenario.set(selected_name)
-        self._update_scenario_description()
-        self.scenario_storage_status.set(
-            self._scenario_storage_text()
-        )
-        if not self.scenario_store.recovery_available:
-            self.restore_scenarios_button.grid_remove()
-        if status:
-            self._set_status(status)
-
-    def _restore_scenario_backup(self):
-        try:
-            count = self.scenario_store.restore_backup()
-        except (OSError, ValueError) as error:
-            self._set_status(f"Не удалось восстановить сценарии: {error}", error=True)
-            return
-        self._refresh_scenarios(status=f"Восстановлено пользовательских сценариев: {count}")
-
-    def _scenario_storage_text(self):
-        prefix = f"{len(self.scenario_store.user_scenarios)} пользовательских сценариев."
-        path_text = f"Файл: {self.scenario_store.path}"
-        if self.scenario_store.warning:
-            return f"{self.scenario_store.warning}\n{path_text}"
-        return f"{prefix}\n{path_text}"
-
-    def _preview_scenario(self, scenario):
-        if scenario["name"] in self.scenarios_by_name:
-            self.selected_scenario.set(scenario["name"])
-            self._update_scenario_description()
-        else:
-            self.scenario_description.set(scenario["description"])
-        self.assignment_enabled.set(False)
-        self._update_assignment_states()
-        self._apply_scenario_data(scenario)
-        self._calculate()
 
     def _update_assignment_states(self):
         enabled = self.assignment_enabled.get()
@@ -2268,8 +2091,8 @@ class DynamicsControlApp(ttk.Frame):
             snapshot["experiment_origin"] = copy.deepcopy(calculation.get("experiment_origin"))
         return {
             "input_state": self._capture_input_state(), "scenario": copy.deepcopy(self.applied_scenario),
-            "lesson": copy.deepcopy(self.current_lesson), "scenario_name": self.selected_scenario.get(),
-            "variant": int(self.selected_variant.get()), "active_scenario": self.active_scenario.get(),
+            "lesson": copy.deepcopy(self.current_lesson), "scenario_name": self.scenario_library.selected.get(),
+            "variant": int(self.scenario_library.variant.get()), "active_scenario": self.active_scenario.get(),
             "learning_mode": self.learning_mode.get(), "learning_step": self.learning_step,
             "assignment_enabled": self.assignment_enabled.get(), "attempts": self.assignment_attempts,
             "steady_tolerance_percent": self.assignment_tolerance_percent,
@@ -2288,15 +2111,15 @@ class DynamicsControlApp(ttk.Frame):
     def _restore_laboratory(self, laboratory, result):
         self._cancel_task(announce=False)
         scenario = laboratory["scenario"]
-        if scenario["name"] not in self.scenarios_by_name:
-            self.scenarios = (*self.scenarios, copy.deepcopy(scenario))
-            self.scenarios_by_name[scenario["name"]] = self.scenarios[-1]
-            self.scenario_box.configure(values=tuple(self.scenarios_by_name))
+        if scenario["name"] not in self.scenario_library.by_name:
+            self.scenario_library.scenarios = (*self.scenario_library.scenarios, copy.deepcopy(scenario))
+            self.scenario_library.by_name[scenario["name"]] = self.scenario_library.scenarios[-1]
+            self.scenario_library.box.configure(values=tuple(self.scenario_library.by_name))
         self.applied_scenario = copy.deepcopy(scenario)
         selected_name = laboratory["scenario_name"]
-        self.selected_scenario.set(selected_name if selected_name in self.scenarios_by_name else scenario["name"])
-        self.selected_variant.set(str(laboratory["variant"]))
-        self._update_scenario_description()
+        self.scenario_library.selected.set(selected_name if selected_name in self.scenario_library.by_name else scenario["name"])
+        self.scenario_library.variant.set(str(laboratory["variant"]))
+        self.scenario_library.update_description()
         self.current_lesson = laboratory["lesson"]
         self.assignment_tolerance_percent = laboratory["steady_tolerance_percent"]
         self.assignment_absolute_tolerance = laboratory["steady_absolute_tolerance"]
@@ -3734,7 +3557,7 @@ def _run_release_check(output_path):
             root = tk.Tk()
             root.withdraw()
             app = DynamicsControlApp(root, scenario_path)
-            for scenario in app.scenarios:
+            for scenario in app.scenario_library.scenarios:
                 app._apply_scenario_data(scenario)
                 app._calculate()
                 import time
@@ -3746,7 +3569,7 @@ def _run_release_check(output_path):
                     time.sleep(0.01)
                 if app.last_calculation is None:
                     raise RuntimeError(app.status_text.get())
-            report["builtin_scenarios"] = len(app.scenarios)
+            report["builtin_scenarios"] = len(app.scenario_library.scenarios)
             app.identification_page.load_path(Path(__file__).resolve().parent / "data" / "identification_step.csv")
             app.identification_page.metadata["input_role"].set("η, доля")
             app.identification_page.metadata["output_role"].set("Xна, доля")

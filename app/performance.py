@@ -70,7 +70,7 @@ def run_check(output_path, app_class, version):
                     root.update()
                     time.sleep(.002)
 
-            app._apply_scenario_data(app.scenarios[1])
+            app._apply_scenario_data(app.scenario_library.scenarios[1])
             measure("absorber_calculation_and_display", lambda: (app._calculate(), wait()))
             measure("tank_calculation", lambda: simulate(DEFAULTS))
             source = Path(__file__).resolve().parent.parent / "data" / "identification_step.csv"

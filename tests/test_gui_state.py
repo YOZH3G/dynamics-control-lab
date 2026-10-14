@@ -664,8 +664,8 @@ class GuiStateTests(unittest.TestCase):
         result = restore_calculation(restored["last_calculation"])
         app.comparison_page.runs, app.comparison_page.counter = runs, counter
         app._restore_laboratory(restored, result)
-        self.assertIn("Сценарий другого компьютера", app.scenarios_by_name)
-        self.assertEqual(app.selected_scenario.get(), "Сценарий другого компьютера")
+        self.assertIn("Сценарий другого компьютера", app.scenario_library.by_name)
+        self.assertEqual(app.scenario_library.selected.get(), "Сценарий другого компьютера")
         self.assertIsNone(app.last_prediction)
         np.testing.assert_array_equal(app.last_calculation["final_response"], original)
 
@@ -777,7 +777,7 @@ class GuiStateTests(unittest.TestCase):
         self.store = ScenarioStore(Path(self.directory.name) / "scenarios.json")
         with patch.object(main, "ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
-        self.app._apply_scenario_data(self.app.scenarios[1])
+        self.app._apply_scenario_data(self.app.scenario_library.scenarios[1])
         self.app._calculate()
         self.wait_for_task()
         self.root.update_idletasks()
@@ -1045,7 +1045,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertEqual(self.app.comparison_page.runs[-1]["input_state"], snapshot)
 
     def test_teacher_quality_requirements_and_absolute_tolerance_survive_editor_round_trip(self):
-        scenario = copy.deepcopy(self.app.scenarios[1])
+        scenario = copy.deepcopy(self.app.scenario_library.scenarios[1])
         scenario["name"] = "Quality assignment"
         scenario["steady_absolute_tolerance"] = 2e-6
         scenario["lesson"]["controller_target"] = dict(type="PI", require_settled=True,
