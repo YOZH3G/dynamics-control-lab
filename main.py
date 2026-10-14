@@ -23,13 +23,11 @@ from app.calculations import (
     RECTANGLE,
     STEP,
 )
-from app.comparison import MAX_COMPARISON_RUNS, build_comparison_run, write_comparison_csv
+from app.comparison import MAX_COMPARISON_RUNS
 from app.background_tasks import BackgroundTask, CalculationCancelled
 from app.exporting import (
     build_protocol,
     save_graphs,
-    write_comparison_html_report,
-    write_comparison_pdf_report,
     write_csv,
     write_html_report,
     write_pdf_report,
@@ -62,7 +60,21 @@ from ui.tank_page import TankPage
 from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
+from ui.comparison_panel import ComparisonPanel
 from ui.scenario_editor import ScenarioEditorDialog
+from ui.theme import (
+    ACCENT,
+    ACCENT_ACTIVE,
+    BACKGROUND,
+    BORDER,
+    CARD_BACKGROUND,
+    ERROR,
+    MUTED,
+    SIDEBAR,
+    SIDEBAR_MUTED,
+    SUCCESS,
+    TEXT,
+)
 from ui.window_geometry import fit_geometry, work_area
 from ui.ui_helpers import (
     DisturbanceTooltip,
@@ -74,17 +86,6 @@ from ui.ui_helpers import (
 )
 
 
-BACKGROUND = "#F4F6F8"
-CARD_BACKGROUND = "#FFFFFF"
-BORDER = "#D7DCE2"
-TEXT = "#1F2937"
-MUTED = "#667085"
-ACCENT = "#2563EB"
-ACCENT_ACTIVE = "#1D4ED8"
-ERROR = "#B42318"
-SUCCESS = "#16A34A"
-SIDEBAR = "#10243E"
-SIDEBAR_MUTED = "#9AAAC0"
 
 DISTURBANCE_TYPES = {
     "Ступенчатое": STEP,
@@ -92,8 +93,6 @@ DISTURBANCE_TYPES = {
     "Временное прямоугольное": RECTANGLE,
     "Плавно нарастающее": RAMP,
 }
-
-COMPARISON_COLORS = ("#2563EB", "#F59E0B", "#16A34A", "#7C3AED", "#DB2777", "#0891B2")
 
 CURVE_STYLES = {
     "Исходный режим": ("#667085", "--"),
@@ -226,12 +225,7 @@ class DynamicsControlApp(ttk.Frame):
         self.last_calculation = None
         self.last_prediction = None
         self.controller_signal_axis = None
-        self.comparison_runs = []
-        self.comparison_details = tk.StringVar()
-        self.comparison_counter = 0
-        self.comparison_summary = tk.StringVar(
-            value="Закрепите результаты нескольких расчётов для сравнения."
-        )
+        self.comparison_page = ComparisonPanel(self)
         self.sensitivity_parameter = tk.StringVar(value="Постоянная времени T")
         self.sensitivity_values = tk.StringVar(value="5; 10; 15; 20")
         self.sensitivity_summary = tk.StringVar(
@@ -533,7 +527,7 @@ class DynamicsControlApp(ttk.Frame):
         self.comparison_workspace = ScrollablePage(workspace, background=BACKGROUND)
         self.comparison_workspace.grid(row=2, column=0, sticky="ew")
         self.comparison_workspace.columnconfigure(0, weight=1)
-        self._build_comparison_card(self.comparison_workspace.content)
+        self.comparison_page.build(self.comparison_workspace.content)
         self.comparison_workspace.bind_mousewheel()
         self.comparison_workspace.canvas.configure(height=260)
         self.comparison_workspace.grid_remove()
@@ -645,8 +639,8 @@ class DynamicsControlApp(ttk.Frame):
             self._table_row_height = line_height
             ttk.Style(self.root).configure("Treeview", rowheight=line_height)
         table_height = max(3, min(6, int((event.height - 500 * scale) / line_height)))
-        if table_height != int(self.comparison_table["height"]):
-            self.comparison_table.configure(height=table_height)
+        if table_height != int(self.comparison_page.table["height"]):
+            self.comparison_page.table.configure(height=table_height)
         canvas_height = max(140, int((event.height - 140 * scale) * 0.43))
         if canvas_height != int(self.comparison_workspace.canvas["height"]):
             self.comparison_workspace.canvas.configure(height=canvas_height)
@@ -821,7 +815,7 @@ class DynamicsControlApp(ttk.Frame):
                 self._set_chart_mode("input")
             self.comparison_workspace.grid()
             self.metric_strip.grid_remove()
-            self._draw_comparison()
+            self.comparison_page.draw()
         else:
             self.comparison_workspace.grid_remove()
             self.metric_strip.grid()
@@ -1568,121 +1562,11 @@ class DynamicsControlApp(ttk.Frame):
         self.add_comparison_button = ttk.Button(
             comparison_action,
             text="Добавить текущий расчёт",
-            command=self._add_current_to_comparison,
+            command=self.comparison_page.add_current,
             style="Primary.TButton",
             state="disabled",
         )
         self.add_comparison_button.grid(row=2, column=0, sticky="ew")
-
-    def _build_comparison_card(self, parent):
-        card = self._card(parent, 0)
-        ttk.Label(card, text="Закреплённые опыты", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 6)
-        )
-        ttk.Label(
-            card,
-            textvariable=self.comparison_summary,
-            style="Muted.TLabel",
-            wraplength=950,
-        ).grid(row=1, column=0, sticky="w", pady=(0, 10))
-
-        table_host = ttk.Frame(card, style="CardBody.TFrame")
-        table_host.grid(row=2, column=0, sticky="nsew")
-        table_host.columnconfigure(0, weight=1)
-        table_host.rowconfigure(0, weight=1)
-        columns = (
-            "name",
-            "T",
-            "L",
-            "controller",
-            "deviation",
-            "settling",
-            "error",
-        )
-        self.comparison_table = ttk.Treeview(
-            table_host,
-            columns=columns,
-            show="headings",
-            selectmode="extended",
-            height=6,
-        )
-        headings = {
-            "name": "Опыт",
-            "T": "T, с",
-            "L": "L, с",
-            "controller": "Регулятор",
-            "deviation": "Δmax, п.п.",
-            "settling": "tуст, с",
-            "error": "eуст, п.п.",
-        }
-        widths = {
-            "name": 190,
-            "T": 45,
-            "L": 45,
-            "controller": 55,
-            "deviation": 70,
-            "settling": 70,
-            "error": 70,
-        }
-        for column in columns:
-            self.comparison_table.heading(column, text=headings[column])
-            self.comparison_table.column(
-                column,
-                width=max(widths[column], int(self.root.tk.call("font", "measure", "TkDefaultFont", headings[column])) + 16),
-                minwidth=max(widths[column], int(self.root.tk.call("font", "measure", "TkDefaultFont", headings[column])) + 16),
-                anchor="w" if column == "name" else "center",
-                stretch=column == "name",
-            )
-        self.comparison_table.grid(row=0, column=0, sticky="nsew")
-        vertical = ttk.Scrollbar(
-            table_host,
-            orient="vertical",
-            command=self.comparison_table.yview,
-        )
-        vertical.grid(row=0, column=1, sticky="ns")
-        horizontal = ttk.Scrollbar(
-            table_host,
-            orient="horizontal",
-            command=self.comparison_table.xview,
-        )
-        horizontal.grid(row=1, column=0, sticky="ew")
-        self.comparison_table.configure(
-            yscrollcommand=vertical.set,
-            xscrollcommand=horizontal.set,
-        )
-        self.comparison_table.bind("<<TreeviewSelect>>", lambda _event: self._draw_comparison())
-        details = ttk.Frame(card)
-        details.grid(row=4, column=0, sticky="ew", pady=(6, 0))
-        details.columnconfigure(0, weight=1)
-        self.comparison_details_text = tk.Text(details, height=2, width=1, wrap="word", font=("Segoe UI", 9), state="disabled")
-        self.comparison_details_text.grid(row=0, column=0, sticky="ew")
-        detail_scroll = ttk.Scrollbar(details, command=self.comparison_details_text.yview)
-        detail_scroll.grid(row=0, column=1, sticky="ns")
-        self.comparison_details_text.configure(yscrollcommand=detail_scroll.set)
-        self.comparison_details.trace_add("write", self._update_comparison_details)
-
-        actions = ttk.Frame(card, style="CardBody.TFrame")
-        actions.grid(row=3, column=0, sticky="ew", pady=(12, 0))
-        actions.columnconfigure((0, 1), weight=1)
-        for index, (label, command) in enumerate((
-            ("Показать все", self._select_all_comparison_runs),
-            ("Удалить выбранные", self._remove_comparison_runs),
-            ("Очистить", self._clear_comparison_runs),
-            ("Вернуть параметры", self._restore_selected_comparison_run),
-            ("Переименовать", self._rename_comparison_run),
-            ("Сохранить сеанс", self._save_comparison_session),
-            ("Открыть сеанс", self._open_comparison_session),
-        )):
-            ttk.Button(actions, text=label, command=command).grid(row=index // 4, column=index % 4,
-                sticky="ew", padx=3, pady=3)
-        actions.columnconfigure((0, 1, 2, 3), weight=1)
-        export_menu = tk.Menu(actions, tearoff=False)
-        for label, command in (("CSV выбранных", self._export_comparison_csv),
-                               ("PNG выбранных", self._export_comparison_graphs),
-                               ("HTML всех опытов", self._save_comparison_html_report),
-                               ("PDF всех опытов", self._save_comparison_pdf_report)):
-            export_menu.add_command(label=label, command=command)
-        ttk.Menubutton(actions, text="Экспорт", menu=export_menu).grid(row=1, column=3, sticky="ew", padx=3, pady=3)
 
     def _build_scenarios_card(self, parent):
         scenario_card = self._card(parent, 0)
@@ -2319,230 +2203,6 @@ class DynamicsControlApp(ttk.Frame):
             self.learning_step = max(self.learning_step, 4)
             self._update_learning_route()
 
-    def _add_current_to_comparison(self):
-        if self.last_calculation is None:
-            self._set_status("Сначала выполните расчёт", error=True)
-            return
-        if len(self.comparison_runs) >= MAX_COMPARISON_RUNS:
-            self._set_status(
-                f"Можно сравнивать не больше {MAX_COMPARISON_RUNS} опытов",
-                error=True,
-            )
-            return
-        self.comparison_counter += 1
-        scenario_name = self.last_calculation["title"]
-        name = f"Опыт {self.comparison_counter}: {scenario_name}"
-        run = build_comparison_run(
-            self.last_calculation,
-            name,
-            self.last_calculation["input_state"],
-        )
-        run["id"] = f"run-{self.comparison_counter}"
-        self.comparison_runs.append(run)
-        self._refresh_comparison_table(
-            tuple(item["id"] for item in self.comparison_runs)
-        )
-        self._show_page("comparison")
-        self._set_status(f"{name} добавлен к сравнению")
-
-    def _refresh_comparison_table(self, selected_ids=()):
-        self.comparison_table.delete(*self.comparison_table.get_children())
-        for index, run in enumerate(self.comparison_runs):
-            self.comparison_table.tag_configure(run["id"], foreground=COMPARISON_COLORS[index % 6])
-            settling = (
-                "—"
-                if run["settling_duration"] is None
-                else f"{run['settling_duration']:.1f}"
-            )
-            self.comparison_table.insert(
-                "",
-                "end",
-                iid=run["id"],
-                tags=(run["id"],),
-                values=(
-                    "● " + run["name"],
-                    self._format_number(run["time_constant"]),
-                    self._format_number(run["delay"]),
-                    run["controller_type"],
-                    self._format_number(run["maximum_deviation"] * 100),
-                    settling,
-                    self._format_signed_number(run["static_error"] * 100),
-                ),
-            )
-        for run_id in selected_ids:
-            if self.comparison_table.exists(run_id):
-                self.comparison_table.selection_add(run_id)
-                self.comparison_table.see(run_id)
-        count = len(self.comparison_runs)
-        self.comparison_summary.set(
-            f"Закреплено опытов: {count} из {MAX_COMPARISON_RUNS}."
-            if count
-            else "Закрепите результаты нескольких расчётов для сравнения."
-        )
-
-    def _selected_comparison_runs(self):
-        selected_ids = set(self.comparison_table.selection())
-        if not selected_ids:
-            return list(self.comparison_runs)
-        return [run for run in self.comparison_runs if run["id"] in selected_ids]
-
-    def _select_all_comparison_runs(self):
-        children = self.comparison_table.get_children()
-        self.comparison_table.selection_set(children)
-        self._draw_comparison()
-
-    def _remove_comparison_runs(self):
-        selected_ids = set(self.comparison_table.selection())
-        if not selected_ids:
-            self._set_status("Выберите опыты для удаления", error=True)
-            return
-        self.comparison_runs = [
-            run for run in self.comparison_runs if run["id"] not in selected_ids
-        ]
-        self._refresh_comparison_table()
-        self._draw_comparison()
-        self._set_status("Выбранные опыты удалены из сравнения")
-
-    def _clear_comparison_runs(self):
-        if not self.comparison_runs:
-            return
-        if not messagebox.askyesno(
-            "Очистить сравнение",
-            "Удалить все закреплённые опыты из текущего сеанса?",
-            parent=self.root,
-        ):
-            return
-        self.comparison_runs.clear()
-        self._refresh_comparison_table()
-        self._draw_comparison()
-        self._set_status("Сравнение очищено")
-
-    def _export_comparison_csv(self):
-        runs = self._selected_comparison_runs()
-        if not runs:
-            self._set_status("Нет опытов для экспорта", error=True)
-            return
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Экспортировать сравнение",
-            defaultextension=".csv",
-            filetypes=(("CSV", "*.csv"),),
-            initialfile="dynamics_control_comparison.csv",
-        )
-        if not selected:
-            return
-        try:
-            path = write_comparison_csv(selected, runs)
-        except (OSError, ValueError) as error:
-            self._set_status(f"Не удалось экспортировать сравнение: {error}", error=True)
-            return
-        self._set_status(f"Сравнение сохранено: {path.name}")
-
-    def _save_comparison_html_report(self):
-        self._save_comparison_report("html")
-
-    def _save_comparison_pdf_report(self):
-        self._save_comparison_report("pdf")
-
-    def _save_comparison_report(self, format_name):
-        if not self.comparison_runs:
-            self._set_status("Нет закреплённых опытов для отчёта", error=True)
-            return
-        selected = filedialog.asksaveasfilename(
-            parent=self.root,
-            title="Сохранить отчёт по сравнению",
-            defaultextension=f".{format_name}",
-            filetypes=((format_name.upper(), f"*.{format_name}"),),
-            initialfile=f"dynamics_control_comparison_report.{format_name}",
-        )
-        if not selected:
-            return
-        writer = write_comparison_html_report if format_name == "html" else write_comparison_pdf_report
-        try:
-            path = writer(selected, self.comparison_runs)
-        except (OSError, ValueError) as error:
-            self._set_status(f"Не удалось сохранить отчёт сравнения: {error}", error=True)
-            return
-        self._set_status(f"Отчёт по всем закреплённым опытам сохранён: {path.name}")
-
-    def _rename_comparison_run(self):
-        selected = self._selected_comparison_runs()
-        if len(selected) != 1:
-            self._set_status("Выберите один опыт для переименования", error=True)
-            return
-        run = selected[0]
-        name = self._ask_comparison_run_name(run["name"])
-        if name is None:
-            return
-        name = name.strip()
-        if not name:
-            self._set_status("Название опыта не должно быть пустым", error=True)
-            return
-        run["name"] = name
-        self._refresh_comparison_table((run["id"],))
-
-    def _ask_comparison_run_name(self, initial_name):
-        dialog = tk.Toplevel(self.root)
-        dialog.title("Переименовать опыт")
-        dialog.configure(background=BACKGROUND)
-        dialog.resizable(False, False)
-        dialog.transient(self.root)
-        dialog.grab_set()
-        dialog.geometry("520x165")
-
-        name = tk.StringVar(value=initial_name)
-        result = {"value": None}
-        content = ttk.Frame(dialog, style="App.TFrame", padding=20)
-        content.pack(fill="both", expand=True)
-        ttk.Label(content, text="Название опыта", style="DialogLabel.TLabel").pack(anchor="w")
-        entry = ttk.Entry(content, textvariable=name, width=56)
-        entry.pack(fill="x", pady=(8, 16))
-
-        actions = ttk.Frame(content, style="App.TFrame")
-        actions.pack(fill="x")
-        def apply_name():
-            result["value"] = name.get()
-            dialog.destroy()
-
-        ttk.Button(actions, text="Переименовать", command=apply_name, style="Primary.TButton").pack(side="right")
-        ttk.Button(actions, text="Отмена", command=dialog.destroy, style="Secondary.TButton").pack(
-            side="right", padx=(0, 8)
-        )
-        dialog.bind("<Return>", lambda _event: apply_name())
-        dialog.bind("<Escape>", lambda _event: dialog.destroy())
-        dialog.protocol("WM_DELETE_WINDOW", dialog.destroy)
-        dialog.update_idletasks()
-        x = self.root.winfo_rootx() + (self.root.winfo_width() - dialog.winfo_width()) // 2
-        y = self.root.winfo_rooty() + (self.root.winfo_height() - dialog.winfo_height()) // 2
-        dialog.geometry(f"+{max(0, x)}+{max(0, y)}")
-        entry.focus_set()
-        entry.select_range(0, "end")
-        self.root.wait_window(dialog)
-        return result["value"]
-        self._draw_comparison()
-        self._set_status("Название опыта изменено")
-
-    def _restore_selected_comparison_run(self):
-        selected = self._selected_comparison_runs()
-        if len(selected) != 1:
-            self._set_status("Выберите один опыт для возврата параметров", error=True)
-            return
-        run = selected[0]
-        input_state = run.get("input_state")
-        if input_state is None:
-            self._set_status("В этом опыте нет сохранённых параметров формы", error=True)
-            return
-        try:
-            self._restore_input_state(input_state)
-            self.identification_page.applied_origin = copy.deepcopy(run.get("experiment_origin"))
-        except (KeyError, TypeError, ValueError) as error:
-            self._set_status(f"Не удалось вернуть параметры: {error}", error=True)
-            return
-        self.active_scenario.set(f"Восстановлен: {run['name']}.")
-        self.topbar_context.set(f"Параметры опыта «{run['name']}» возвращены в форму")
-        self._set_status("Параметры опыта возвращены — при необходимости измените их и рассчитайте")
-        self._show_page("disturbances")
-
     def _save_comparison_session(self):
         selected = filedialog.asksaveasfilename(
             parent=self.root,
@@ -2555,14 +2215,14 @@ class DynamicsControlApp(ttk.Frame):
             return
         try:
             self._finish_autosave(wait=True)
-            path = write_session(selected, self.comparison_runs, self.comparison_counter, self._capture_laboratory())
+            path = write_session(selected, self.comparison_page.runs, self.comparison_page.counter, self._capture_laboratory())
         except (OSError, ValueError, TypeError) as error:
             self._set_status(f"Не удалось сохранить сеанс: {error}", error=True)
             return
         self._set_status(f"Учебный сеанс сохранён: {path.name}")
 
     def _open_comparison_session(self):
-        if self.comparison_runs and not messagebox.askyesno(
+        if self.comparison_page.runs and not messagebox.askyesno(
             "Открыть учебный сеанс",
             "Текущая история опытов будет заменена. Продолжить?",
             parent=self.root,
@@ -2587,19 +2247,16 @@ class DynamicsControlApp(ttk.Frame):
                 error=True,
             )
             return
-        self.comparison_runs = runs
-        self.comparison_counter = counter
+        self.comparison_page.runs = runs
+        self.comparison_page.counter = counter
         if laboratory is not None:
             self._restore_laboratory(laboratory, result)
             self._set_status(f"Лабораторная восстановлена: {len(runs)} закреплённых опытов")
             return
         selected_ids = tuple(run["id"] for run in runs)
-        self._refresh_comparison_table(selected_ids)
-        self._draw_comparison()
+        self.comparison_page.refresh_table(selected_ids)
+        self.comparison_page.draw()
         self._set_status(f"Открыт учебный сеанс: {len(runs)} опытов")
-
-    def _export_comparison_graphs(self):
-        self._export_graphs_png()
 
     def _capture_laboratory(self, *, copy_results=True):
         calculation = self.last_calculation
@@ -2621,7 +2278,7 @@ class DynamicsControlApp(ttk.Frame):
                                   "fastest": self.predicted_fastest.get(), "correction": self.predicted_correction.get()},
             "evaluation": copy.deepcopy(self.assignment_evaluation), "student_name": self.student_name.get(),
             "conclusion": self.student_conclusion.get(), "page": self.current_page,
-            "selected_runs": list(self.comparison_table.selection()), "last_calculation": snapshot,
+            "selected_runs": list(self.comparison_page.table.selection()), "last_calculation": snapshot,
             "identification": self.identification_page.capture(validate=False, copy_results=copy_results),
             "selected_model": MODELS.named(self.selected_model.get()).id,
             "model_results": copy.deepcopy(self.model_results) if copy_results else self.model_results,
@@ -2683,7 +2340,7 @@ class DynamicsControlApp(ttk.Frame):
             self.assignment_feedback.set(f"Результат: {evaluation['score']} из {evaluation['total']}.\n"
                                          + "\n".join(evaluation["lines"])
                                          + f"\nОсталось попыток: {self.current_lesson['attempt_limit'] - self.assignment_attempts}.")
-        self._refresh_comparison_table(laboratory["selected_runs"])
+        self.comparison_page.refresh_table(laboratory["selected_runs"])
         self.identification_page.restore(laboratory.get("identification"))
         self.tank_page.restore(laboratory.get("tank"))
         self.model_results = copy.deepcopy(laboratory.get("model_results", {}))
@@ -2699,7 +2356,7 @@ class DynamicsControlApp(ttk.Frame):
 
     def _autosave_state(self):
         return (self._capture_laboratory(copy_results=False),
-                [(run["id"], run["name"]) for run in self.comparison_runs], self.comparison_counter)
+                [(run["id"], run["name"]) for run in self.comparison_page.runs], self.comparison_page.counter)
 
     def _finish_autosave(self, *, wait=False):
         task = self._autosave_task
@@ -2723,7 +2380,7 @@ class DynamicsControlApp(ttk.Frame):
             state = self._autosave_state()
             if state != self._autosave_snapshot:
                 snapshot = copy.deepcopy(state)
-                write_session(self.autosave_path, self.comparison_runs, self.comparison_counter, snapshot[0])
+                write_session(self.autosave_path, self.comparison_page.runs, self.comparison_page.counter, snapshot[0])
                 self._autosave_snapshot = snapshot
         except (OSError, ValueError, TypeError) as error:
             self._set_status(f"Не удалось автоматически сохранить лабораторную: {error}", error=True)
@@ -2734,7 +2391,7 @@ class DynamicsControlApp(ttk.Frame):
             try:
                 state = self._autosave_state()
                 if state != self._autosave_snapshot:
-                    snapshot, runs = copy.deepcopy(state), copy.deepcopy(self.comparison_runs)
+                    snapshot, runs = copy.deepcopy(state), copy.deepcopy(self.comparison_page.runs)
                     def save(cancel, progress):
                         write_session(self.autosave_path, runs, snapshot[2], snapshot[0])
                         return snapshot
@@ -2760,11 +2417,11 @@ class DynamicsControlApp(ttk.Frame):
                     except OSError:
                         pass
                 continue
-            self.comparison_runs, self.comparison_counter = runs, counter
+            self.comparison_page.runs, self.comparison_page.counter = runs, counter
             if laboratory is not None:
                 self._restore_laboratory(laboratory, result)
             else:
-                self._refresh_comparison_table()
+                self.comparison_page.refresh_table()
             if path != self.autosave_path:
                 self._set_status("Лабораторная восстановлена из резервного автосохранения")
             else:
@@ -2897,92 +2554,6 @@ class DynamicsControlApp(ttk.Frame):
             self._clear_result_values()
             self._draw_static_charts()
 
-    def _comparison_color(self, run):
-        index = next(index for index, stored in enumerate(self.comparison_runs) if stored["id"] == run["id"])
-        return COMPARISON_COLORS[index % len(COMPARISON_COLORS)]
-
-    def _update_comparison_details(self, *_):
-        self.comparison_details_text.configure(state="normal")
-        self.comparison_details_text.delete("1.0", "end")
-        self.comparison_details_text.insert("1.0", self.comparison_details.get())
-        self.comparison_details_text.configure(state="disabled")
-
-    def _draw_comparison(self):
-        if not hasattr(self, "comparison_table") or self.current_page != "comparison":
-            return
-        runs = self._selected_comparison_runs()
-        def metric(value, unit, scale=100):
-            return "не применимо" if value is None else self._format_number(value * scale) + unit
-        from app.identification import format_experiment_origin
-        self.comparison_details.set("\n\n".join(
-            f"{run['name']}: {run.get('settling_status', 'нет данных')}.\n"
-            f"Теория {metric(run.get('steady_state'), '%')}; конец {metric(run.get('final_value'), '%')}.\n"
-            f"Ошибка: теория {metric(run['static_error'], ' п.п.')}; конец {metric(run.get('final_error'), ' п.п.')}.\n"
-            f"IAE {metric(run.get('iae'), ' п.п.·с')}; насыщение η {metric(run.get('saturation_duration'), ' с', 1)}.\n"
-            + format_experiment_origin(run.get("experiment_origin"))
-            for run in runs))
-        self._remove_controller_axis()
-        self.primary_chart_title.set("Сравнение переходных процессов")
-        self.primary_chart_subtitle.set("Закреплённые расчёты на одном графике")
-        self._style_axis(self.disturbance_axis, "Время, с", "X, %")
-        for index, run in enumerate(runs):
-            self.disturbance_axis.plot(
-                *plot_samples(run["time"], run["response"] * 100),
-                color=self._comparison_color(run),
-                linewidth=2.2,
-                label=run["name"].split(":", 1)[0],
-            )
-        if runs:
-            self._place_legend_above(self.disturbance_axis)
-            self.disturbance_axis.margins(x=0.02, y=0.12)
-        else:
-            self.disturbance_axis.text(
-                0.5,
-                0.5,
-                "Нет закреплённых опытов",
-                transform=self.disturbance_axis.transAxes,
-                ha="center",
-                va="center",
-                color=MUTED,
-            )
-        self._enable_legend_toggles(self.disturbance_axis, self.disturbance_canvas)
-        self.disturbance_canvas.draw_idle()
-
-        self.response_chart_title.set("Длительность установления")
-        self.response_subtitle.set("Время после начала реакции объекта")
-        self._style_axis(self.response_axis, "Опыт", "Время, с")
-        values = [
-            0.0 if run["settling_duration"] is None else run["settling_duration"]
-            for run in runs
-        ]
-        positions = np.arange(len(runs))
-        bars = self.response_axis.bar(
-            positions,
-            values,
-            color=[self._comparison_color(run) for run in runs],
-            alpha=0.85,
-        )
-        self.response_axis.set_xticks(positions)
-        self.response_axis.set_xticklabels(
-            [run["name"].split(":", 1)[0] for run in runs],
-            rotation=20,
-            ha="right",
-        )
-        for bar, run in zip(bars, runs, strict=True):
-            label = "не достигнуто" if run["settling_duration"] is None else f"{run['settling_duration']:.1f} с"
-            self.response_axis.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
-                label,
-                ha="center",
-                va="bottom",
-                fontsize=8,
-                color=TEXT,
-            )
-        self.response_axis.margins(y=0.18)
-        self.response_canvas.draw_idle()
-        self._charts_show_comparison = True
-
     def _export_graphs_png(self):
         self.time_cursor.clear()
         selected = filedialog.asksaveasfilename(
@@ -3079,7 +2650,7 @@ class DynamicsControlApp(ttk.Frame):
                 self.student_conclusion.get(),
                 (self.disturbance_axis.figure, self.response_axis.figure),
                 prediction=self.last_calculation["prediction"],
-                comparison_runs=self.comparison_runs,
+                comparison_runs=self.comparison_page.runs,
             )
         except OSError as error:
             self._set_status(

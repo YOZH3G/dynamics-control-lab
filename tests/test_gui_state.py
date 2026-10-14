@@ -157,7 +157,7 @@ class GuiStateTests(unittest.TestCase):
             scroll.assert_called_once_with(1, "units")
         event = SimpleNamespace(widget=self.root, width=1366, height=900)
         app._adapt_window(event)
-        with patch.object(app.comparison_table, "configure") as table:
+        with patch.object(app.comparison_page.table, "configure") as table:
             app._adapt_window(event); table.assert_not_called()
 
     def test_identification_quality_is_visible_saved_and_checked(self):
@@ -663,7 +663,7 @@ class GuiStateTests(unittest.TestCase):
                                     "laboratory": laboratory}), encoding="utf-8")
         runs, counter, restored = read_laboratory_session(path)
         result = restore_calculation(restored["last_calculation"])
-        app.comparison_runs, app.comparison_counter = runs, counter
+        app.comparison_page.runs, app.comparison_page.counter = runs, counter
         app._restore_laboratory(restored, result)
         self.assertIn("Сценарий другого компьютера", app.scenarios_by_name)
         self.assertEqual(app.selected_scenario.get(), "Сценарий другого компьютера")
@@ -697,7 +697,7 @@ class GuiStateTests(unittest.TestCase):
         app._calculate()
         self.wait_for_task()
         original = app.last_calculation
-        app._add_current_to_comparison()
+        app.comparison_page.add_current()
         app.learning_mode.set(True)
         app.learning_step = 4
         app.student_name.set("Студент")
@@ -705,13 +705,13 @@ class GuiStateTests(unittest.TestCase):
         app.component_value.set("-")
         app.predicted_steady.set("26,")
         path = Path(self.directory.name) / "laboratory.json"
-        write_session(path, app.comparison_runs, app.comparison_counter, app._capture_laboratory())
+        write_session(path, app.comparison_page.runs, app.comparison_page.counter, app._capture_laboratory())
         runs, counter, laboratory = read_laboratory_session(path)
         result = restore_calculation(laboratory["last_calculation"])
         app._reset()
         app.student_name.set("")
         app.assignment_attempts = 0
-        app.comparison_runs, app.comparison_counter = runs, counter
+        app.comparison_page.runs, app.comparison_page.counter = runs, counter
         app._restore_laboratory(laboratory, result)
         np.testing.assert_array_equal(app.last_calculation["final_response"], original["final_response"])
         np.testing.assert_array_equal(app.last_calculation["time"], original["time"])
@@ -841,11 +841,11 @@ class GuiStateTests(unittest.TestCase):
         self.assertIs(app.last_calculation, original)
         app._reset()
         self.assertIsNone(app.last_calculation)
-        app.comparison_counter = 7
+        app.comparison_page.counter = 7
         app._undo_clear_experiment()
         self.assertIs(app.last_calculation, original)
         self.assertEqual(app.assignment_attempts, 0)
-        self.assertEqual(app.comparison_counter, 7)
+        self.assertEqual(app.comparison_page.counter, 7)
 
     def test_defaults_restore_disabled_controller_and_preserve_variant_title(self):
         app = self.app
@@ -925,18 +925,18 @@ class GuiStateTests(unittest.TestCase):
 
     def test_comparison_selection_retains_curve_colour_and_has_wide_table(self):
         app = self.app
-        app._add_current_to_comparison()
-        app._add_current_to_comparison()
+        app.comparison_page.add_current()
+        app.comparison_page.add_current()
         self.root.update_idletasks()
-        second = app.comparison_runs[1]
-        app.comparison_table.selection_set(second["id"])
-        app._draw_comparison()
-        self.assertEqual(app.disturbance_axis.lines[0].get_color(), app._comparison_color(second))
-        self.assertEqual(str(app.comparison_table.tag_configure(second["id"], "foreground")), app._comparison_color(second))
+        second = app.comparison_page.runs[1]
+        app.comparison_page.table.selection_set(second["id"])
+        app.comparison_page.draw()
+        self.assertEqual(app.disturbance_axis.lines[0].get_color(), app.comparison_page.color(second))
+        self.assertEqual(str(app.comparison_page.table.tag_configure(second["id"], "foreground")), app.comparison_page.color(second))
         self.root.deiconify()
         self.root.geometry("1366x768")
         self.root.update()
-        self.assertGreater(app.comparison_table.winfo_width(), 545)
+        self.assertGreater(app.comparison_page.table.winfo_width(), 545)
         self.assertGreater(app.chart_panes.winfo_height(), 250)
 
     def test_units_preserve_precision_snapshot_and_physical_result(self):
@@ -1031,8 +1031,8 @@ class GuiStateTests(unittest.TestCase):
         self.app._set_controller_mode(True)
         self.assertIs(self.app.last_calculation, result)
         self.assertEqual(result["input_state"], snapshot)
-        self.app._add_current_to_comparison()
-        self.assertEqual(self.app.comparison_runs[-1]["input_state"], snapshot)
+        self.app.comparison_page.add_current()
+        self.assertEqual(self.app.comparison_page.runs[-1]["input_state"], snapshot)
 
     def test_teacher_quality_requirements_and_absolute_tolerance_survive_editor_round_trip(self):
         scenario = copy.deepcopy(self.app.scenarios[1])
@@ -1164,7 +1164,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertIs(page.result, result)
         self.assertEqual(app.primary_chart_title.get(), title)
         app._show_page("identification")
-        app._add_current_to_comparison()
+        app.comparison_page.add_current()
         self.assertEqual(app.current_page, "comparison")
         self.assertTrue(app._charts_show_comparison)
         release.clear()
@@ -1184,8 +1184,8 @@ class GuiStateTests(unittest.TestCase):
         self.app.model_dialog._apply_values()
         self.assertIs(self.app.last_calculation, result)
         self.assertIn("Параметры изменены", self.app.export_summary.get())
-        self.app._add_current_to_comparison()
-        self.assertIn("Теория", self.app.comparison_details.get())
+        self.app.comparison_page.add_current()
+        self.assertIn("Теория", self.app.comparison_page.details.get())
         captured = []
         self.app.last_prediction = {"steady": 0.9}
 

@@ -1,0 +1,15 @@
+"""Shared interface colours used by the main window and its pages."""
+
+BACKGROUND = "#F4F6F8"
+CARD_BACKGROUND = "#FFFFFF"
+BORDER = "#D7DCE2"
+TEXT = "#1F2937"
+MUTED = "#667085"
+ACCENT = "#2563EB"
+ACCENT_ACTIVE = "#1D4ED8"
+ERROR = "#B42318"
+SUCCESS = "#16A34A"
+SIDEBAR = "#10243E"
+SIDEBAR_MUTED = "#9AAAC0"
+
+COMPARISON_COLORS = ("#2563EB", "#F59E0B", "#16A34A", "#7C3AED", "#DB2777", "#0891B2")
