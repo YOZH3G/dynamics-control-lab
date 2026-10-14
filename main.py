@@ -58,6 +58,7 @@ from ui.ui_helpers import (
     TextTooltip,
     create_icon,
     plot_samples,
+    relax_field_widths,
 )
 
 
@@ -381,6 +382,7 @@ class DynamicsControlApp(ttk.Frame):
         self.model_result_page = ModelResultPage(self.page_contents["model_result"], self)
         self.model_result_page.grid(row=0, column=0, sticky="nsew")
         for page in self.pages.values():
+            relax_field_widths(page.content)
             page.bind_mousewheel()
 
         actions = ttk.Frame(inspector, style="App.TFrame")

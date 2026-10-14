@@ -384,6 +384,10 @@ class FormulaPanel(ttk.Frame):
         self.axis.set_axis_off()
         self.canvas = FigureCanvasTkAgg(self.figure, master=self)
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        # Matplotlib stores each resized width as the widget request; a fixed
+        # frame height without propagation lets the panel shrink again.
+        self.configure(height=self.canvas.get_tk_widget().winfo_reqheight())
+        self.pack_propagate(False)
 
     def set_controller_type(self, controller_type):
         self.axis.clear()
@@ -422,6 +426,23 @@ class FormulaPanel(ttk.Frame):
             va="center",
         )
         self.canvas.draw_idle()
+
+
+def relax_field_widths(container, minimum=10):
+    """Lower the minimum width of stretching fields so narrow panels do not clip them.
+
+    Entries and lists that fill a weighted grid column keep their full width when
+    space allows; their character width only sets how far the panel can shrink.
+    """
+    for widget in container.winfo_children():
+        relax_field_widths(widget, minimum)
+        if widget.winfo_class() not in ("TEntry", "TCombobox") or widget.winfo_manager() != "grid":
+            continue
+        info = widget.grid_info()
+        column = int(info["column"])
+        if "e" in info["sticky"] and "w" in info["sticky"] and int(widget.master.grid_columnconfigure(column)["weight"]) > 0:
+            if int(widget.cget("width")) > minimum:
+                widget.configure(width=minimum)
 
 
 class ScrollablePage(ttk.Frame):

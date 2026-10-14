@@ -65,7 +65,7 @@ class AbsorberForm:
 
     def build_chain_card(self, parent):
         card = self.app._card(parent, 0)
-        ttk.Label(card, text="Цепь управления", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 14))
+        ttk.Label(card, text="Цепь управления", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
         ttk.Button(
             card,
             text="Параметры модели",
@@ -301,7 +301,7 @@ class AbsorberForm:
             field_label = ttk.Label(parameters, text=label, style="Body.TLabel")
             field_label.grid(row=row, column=0, sticky="w", pady=3)
             self.app._attach_tooltip(field_label, controller_help[label])
-            entry = ttk.Entry(parameters, textvariable=variable, width=12, state="disabled")
+            entry = ttk.Entry(parameters, textvariable=variable, width=10, state="disabled")
             entry.grid(row=row, column=1, sticky="e", pady=3, padx=(10, 0))
             setattr(self, attribute, entry)
             self.controller_entries.append(entry)

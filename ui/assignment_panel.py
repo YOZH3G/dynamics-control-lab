@@ -74,7 +74,7 @@ class AssignmentPanel:
                 textvariable=variable,
                 values=values,
                 state="disabled",
-                width=20,
+                width=16,
             )
             widget.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
             setattr(self, attribute, widget)
@@ -87,7 +87,7 @@ class AssignmentPanel:
             assignment,
             textvariable=self.predicted_steady,
             state="disabled",
-            width=22,
+            width=16,
         )
         self.steady_prediction.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
         self.prediction_widgets.append(self.steady_prediction)
@@ -95,14 +95,14 @@ class AssignmentPanel:
         ttk.Label(assignment, text="Студент", style="Body.TLabel").grid(
             row=row, column=0, sticky="w", pady=4
         )
-        self.student_name_entry = ttk.Entry(assignment, textvariable=self.student_name, state="disabled", width=22)
+        self.student_name_entry = ttk.Entry(assignment, textvariable=self.student_name, state="disabled", width=16)
         self.student_name_entry.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
         self.prediction_widgets.append(self.student_name_entry)
         row += 1
         ttk.Label(assignment, text="Краткий вывод", style="Body.TLabel").grid(
             row=row, column=0, sticky="w", pady=4
         )
-        self.student_conclusion_entry = ttk.Entry(assignment, textvariable=self.student_conclusion, state="disabled", width=22)
+        self.student_conclusion_entry = ttk.Entry(assignment, textvariable=self.student_conclusion, state="disabled", width=16)
         self.student_conclusion_entry.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
         self.prediction_widgets.append(self.student_conclusion_entry)
         assignment.columnconfigure(0, weight=1)

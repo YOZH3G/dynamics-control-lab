@@ -39,7 +39,7 @@ class AnalysisPanel:
     def build_sensitivity_card(self, parent):
         card = self.app._card(parent, 0)
         ttk.Label(card, text="Семейство переходных процессов", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
+            row=0, column=0, columnspan=2, sticky="w", pady=(0, 8)
         )
         ttk.Label(
             card,
