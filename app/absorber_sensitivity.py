@@ -11,7 +11,7 @@ from .controller_extensions import normalize_extensions
 from .experiment_control import model_parameters
 from .physical_models import MODELS, run_model
 from .simulation import LEAN_GAS, RICH_ABSORBENT, disturbed_inputs, eta_gain, simulation_time_grid
-from .tank_sensitivity import REQUIREMENTS, finite, parse_fields, validate_grid
+from .tank_sensitivity import REQUIREMENTS, finite, parse_fields, validate_grid  # noqa: F401 (parse_fields re-exported)
 
 
 FIELD_DEFAULTS = dict(k_errors="-20;0;20", t_errors="-20;0;20", l_errors="0;1",

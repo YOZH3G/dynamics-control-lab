@@ -1,0 +1,3 @@
+# Errors only: undefined names, unused imports and variables, syntax errors.
+[lint]
+select = ["F", "E9"]

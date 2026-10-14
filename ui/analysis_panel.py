@@ -66,7 +66,8 @@ class AnalysisPanel:
         ttk.Label(
             card, textvariable=self.sensitivity_summary, style="Muted.TLabel", wraplength=330, justify="left"
         ).grid(row=5, column=0, columnspan=2, sticky="w", pady=(10, 0))
-        card.columnconfigure((0, 1), weight=1)
+        card.columnconfigure(0, weight=3)
+        card.columnconfigure(1, weight=2)
 
         note = self.app._card(parent, 1, padding=(14, 12))
         ttk.Label(note, text="Как читать график", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")

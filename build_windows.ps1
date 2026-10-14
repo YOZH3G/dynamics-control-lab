@@ -28,11 +28,13 @@ Write-Host "Запуск EXE до готового окна: первый $($sta
 
 $taskOutput = Join-Path (Get-Location) "build\release-check.json"
 $taskProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab\DynamicsControlLab.exe").Path -ArgumentList @("--smoke-test", ('"' + $taskOutput + '"')) -WindowStyle Hidden -PassThru
-if (-not $taskProcess.WaitForExit(60000)) {
+# Generous limits: a cold CI runner can be slow; a hang still fails the build.
+if (-not $taskProcess.WaitForExit(180000)) {
     Stop-Process -Id $taskProcess.Id
-    throw "Проверка приложения превысила 60 секунд."
+    throw "Проверка приложения превысила 180 секунд."
 }
 $taskProcess.Refresh()
+Write-Host "Проверка приложения: $([math]::Round(((Get-Date) - $taskProcess.StartTime).TotalSeconds, 1)) с."
 if ($taskProcess.ExitCode -ne 0) {
     Get-Content -LiteralPath $taskOutput -ErrorAction SilentlyContinue
     throw "Проверка приложения завершилась с кодом $($taskProcess.ExitCode)."
@@ -44,11 +46,12 @@ if ($taskReport.status -ne "passed" -or -not $taskReport.frozen) {
 
 $performanceOutput = Join-Path (Get-Location) "build\performance-check.json"
 $performanceProcess = Start-Process -FilePath (Resolve-Path "dist\DynamicsControlLab\DynamicsControlLab.exe").Path -ArgumentList @("--performance-check", ('"' + $performanceOutput + '"')) -WindowStyle Hidden -PassThru
-if (-not $performanceProcess.WaitForExit(90000)) {
+if (-not $performanceProcess.WaitForExit(180000)) {
     Stop-Process -Id $performanceProcess.Id
-    throw "Измерение производительности превысило 90 секунд."
+    throw "Измерение производительности превысило 180 секунд."
 }
 $performanceProcess.Refresh()
+Write-Host "Измерение производительности: $([math]::Round(((Get-Date) - $performanceProcess.StartTime).TotalSeconds, 1)) с."
 $performanceReport = Get-Content -LiteralPath $performanceOutput -Raw | ConvertFrom-Json
 if ($performanceProcess.ExitCode -ne 0 -or $performanceReport.status -ne "passed" -or -not $performanceReport.frozen) {
     throw "Измерение производительности EXE завершилось с ошибкой."

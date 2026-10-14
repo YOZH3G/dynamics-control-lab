@@ -153,7 +153,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Language and version: Python 3.14.7
 - Framework(s): tkinter/ttk; NumPy; Matplotlib with the TkAgg backend
 - Package manager: pip with pinned `requirements.txt` (runtime) and `requirements-dev.txt` (build and CI)
-- Runtime / deployment target: desktop Tkinter application; Windows EXE built with PyInstaller
+- Runtime / deployment target: desktop Tkinter application; Windows one-folder build (PyInstaller) shipped as a ZIP
 
 ### Commands
 - Install: `python -m pip install -r requirements-dev.txt`
@@ -163,7 +163,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Source smoke and performance checks: `python main.py --smoke-test build/source-check.json`, `python main.py --performance-check build/source-performance.json`
 - Run locally: `python main.py`
 - User guide PDF (version releases only): `python tools/build_docs_pdf.py`
-- Lint and typecheck: not configured
+- Lint: `python -m ruff check .` (rules in `ruff.toml`: errors only); typecheck: not configured
 
 Prefer single-file or single-test runs during iteration. Full suites are for the final verification pass.
 
@@ -178,7 +178,7 @@ Prefer single-file or single-test runs during iteration. Full suites are for the
 - Error handling pattern: invalid user input raises `ValueError` with a Russian message shown in the interface
 - Testing pattern and framework: standard-library `unittest`; GUI tests drive real Tk widgets
 - Branches: develop and push on `trunk` (CI runs there); `stable` is the default branch; `legacy` keeps the old PySimpleGUI interface and is not developed
-- Releases: tag `vX.Y.Z` on `trunk`, attach the verified EXE
+- Releases: tag `vX.Y.Z` on `trunk`, attach the verified `DynamicsControlLab.zip` from the CI artifact
 
 ---
 
