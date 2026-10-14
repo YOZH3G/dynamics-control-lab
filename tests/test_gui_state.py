@@ -480,6 +480,39 @@ class GuiStateTests(unittest.TestCase):
             self.app.selected_model.set("Абсорбер")
             self.app._select_model()
 
+    def test_heater_page_runs_shares_results_and_survives_session(self):
+        from app.session_store import validate_laboratory
+        app, page = self.app, self.app.heater_page
+        app.selected_model.set("Нагреватель"); app._select_model()
+        self.assertEqual(app.current_page, "heater")
+        self.assertIn("Ёмкость с нагревателем", app.topbar_context.get())
+        page.calculate(); self.wait_for_task()
+        self.assertIsNotNone(page.result, page.summary.get())
+        self.assertEqual(app.response_axis.get_ylabel(), "Температура, °C")
+        page.calculate_pi(); self.wait_for_task()
+        self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
+        self.assertIn("PI: Kp=3", page.summary.get())
+        app._show_page("model_result")
+        self.assertEqual(app.response_axis.get_ylabel(), "°C")
+        app._show_page("heater")
+        snapshot = page.capture()
+        session = Path(self.directory.name) / "heater.json"
+        with patch("main.filedialog.asksaveasfilename", return_value=str(session)): app._save_comparison_session()
+        page.restore(None)
+        self.assertIsNone(page.pi)
+        with patch("main.filedialog.askopenfilename", return_value=str(session)): app._open_comparison_session()
+        self.assertEqual(page.capture(), snapshot)
+        self.assertEqual(app.current_page, "heater")
+        laboratory = app._capture_laboratory()
+        laboratory["selected_model"] = "absorber"
+        with self.assertRaises(ValueError):
+            validate_laboratory(laboratory)
+        page.fields["power"].set("abc")
+        page.calculate()
+        self.assertIn("числовые параметры", page.summary.get())
+        app.selected_model.set("Абсорбер"); app._select_model()
+        self.assertNotEqual(app.current_page, "heater")
+
     def test_tank_complete_workflow_roundtrip_units_and_atomic_import(self):
         import json
         import numpy as np

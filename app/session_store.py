@@ -15,6 +15,7 @@ from .controller_extensions import EXTENSION_DEFAULTS, extensions_from_form
 from .validation import parse_disturbance, parse_nonnegative_number, parse_percentage, parse_positive_number
 from .identification import validate_experiment_state, validate_experiment_origin
 from .tank_state import validate_tank_state
+from .heater import validate_state as validate_heater_state
 from .physical_models import MODELS, run_model
 from .model_contract import copy_data
 
@@ -207,6 +208,7 @@ def validate_laboratory(laboratory):
         raise ValueError("Лабораторная должна быть объектом JSON.")
     restored = copy_data(laboratory)
     restored["tank"] = validate_tank_state(restored.get("tank"))
+    restored["heater"] = validate_heater_state(restored.get("heater"))
     restored.setdefault("selected_model", "absorber")
     model = MODELS.get(restored["selected_model"])
     results = restored.get("model_results", {})
@@ -215,8 +217,9 @@ def validate_laboratory(laboratory):
     restored["model_results"] = {key: MODELS.validate(value) for key, value in results.items()}
     if any(key != value["model_id"] for key, value in restored["model_results"].items()):
         raise ValueError("Лабораторная: идентификатор результата не соответствует модели.")
-    if (restored.get("page") != "model_result"
-            and (model.entry_page == "tank") != (restored.get("page") == "tank")):
+    object_pages = {m.entry_page for m in MODELS.all() if m.id != "absorber"} - {"model_result"}
+    if (restored.get("page") != "model_result" and model.entry_page != restored.get("page")
+            and (model.entry_page in object_pages or restored.get("page") in object_pages)):
         raise ValueError("Лабораторная: выбранная модель не соответствует разделу.")
     restored["identification"] = validate_experiment_state(restored.get("identification"))
     validate_input_state(restored.get("input_state"), draft=True)
@@ -242,7 +245,7 @@ def validate_laboratory(laboratory):
             not isinstance(value, str) for value in restored["selected_runs"]):
         raise ValueError("Лабораторная: выбранные опыты должны быть списком идентификаторов.")
     if restored["page"] not in ("disturbances", "dynamics", "results", "comparison", "controller",
-                                "sensitivity", "tuning_map", "scenarios", "export", "identification", "tank", "model_result"):
+                                "sensitivity", "tuning_map", "scenarios", "export", "identification", "tank", "heater", "model_result"):
         raise ValueError("Лабораторная: неизвестный раздел.")
     draft = restored.get("prediction_fields")
     if not isinstance(draft, dict):

@@ -29,6 +29,7 @@ from app.controller_extensions import EXTENSION_DEFAULTS, EXTENSION_FIELDS
 from app.validation import parse_positive_number
 from ui.identification_page import IdentificationPage
 from ui.tank_page import TankPage
+from ui.heater_page import HeaterPage
 from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
@@ -350,6 +351,7 @@ class DynamicsControlApp(ttk.Frame):
             "tuning_map",
             "identification",
             "tank",
+            "heater",
             "model_result",
             "scenarios",
             "export",
@@ -374,6 +376,8 @@ class DynamicsControlApp(ttk.Frame):
         self.identification_page.grid(row=0, column=0, sticky="nsew")
         self.tank_page = TankPage(self.page_contents["tank"], self)
         self.tank_page.grid(row=0, column=0, sticky="nsew")
+        self.heater_page = HeaterPage(self.page_contents["heater"], self)
+        self.heater_page.grid(row=0, column=0, sticky="nsew")
         self.model_result_page = ModelResultPage(self.page_contents["model_result"], self)
         self.model_result_page.grid(row=0, column=0, sticky="nsew")
         for page in self.pages.values():
@@ -538,6 +542,8 @@ class DynamicsControlApp(ttk.Frame):
             return "Входы модели"
         elif self.current_page == "tank":
             return "Подача и отбор"
+        elif self.current_page == "heater":
+            return "Мощность"
         if self.current_page in ("comparison", "sensitivity", "tuning_map"):
             return {"comparison": "Сравнение", "sensitivity": "Чувствительность", "tuning_map": "Карта настроек"}[self.current_page]
         return "Сигналы регулятора" if self.absorber_form.controller_enabled.get() else "Воздействие"
@@ -632,6 +638,7 @@ class DynamicsControlApp(ttk.Frame):
             "export": "Отчёт",
             "identification": "Идентификация по CSV",
             "tank": "Бак: опыт и регулирование",
+            "heater": "Нагреватель: опыт и регулирование",
             "model_result": "Результат модели",
         }
         previous_page = self.current_page
@@ -640,10 +647,11 @@ class DynamicsControlApp(ttk.Frame):
             self._page_context[previous_page] = (self.pages[previous_page].canvas.yview()[0],
                 focus if focus is not None and str(focus).startswith(str(self.pages[previous_page])) else None)
         self.current_page = page
-        if page == "tank":
-            if previous_page != "tank": self._absorber_context = self.topbar_context.get()
-            self.topbar_context.set("Бак: объёмный баланс, локальная модель и PI; уровень в метрах")
-        elif previous_page == "tank":
+        object_pages = {m.entry_page for m in MODELS.all() if m.id != "absorber"} - {"model_result"}
+        if page in object_pages:
+            if previous_page not in object_pages: self._absorber_context = self.topbar_context.get()
+            self.topbar_context.set(next(m for m in MODELS.all() if m.entry_page == page).context)
+        elif previous_page in object_pages:
             self.topbar_context.set(getattr(self,"_absorber_context","Абсорбер"))
             for axis in (self.disturbance_axis,self.response_axis):
                 axis.figure.set_layout_engine("constrained")
@@ -654,9 +662,9 @@ class DynamicsControlApp(ttk.Frame):
         self.sidebar_title.configure(text=model.sidebar)
         if page == "model_result":
             self.topbar_context.set(model.context)
-        if page not in ("tank", "model_result"):
+        if page not in (*object_pages, "model_result"):
             self._absorber_page = page
-        elif previous_page != "tank":
+        elif previous_page not in object_pages:
             self._cancel_task(announce=False)
         for widget in self.absorber_action_widgets:
             widget.grid_remove() if page == "model_result" or model.id != "absorber" else widget.grid()
@@ -674,10 +682,10 @@ class DynamicsControlApp(ttk.Frame):
                                       if self.current_page == page and focus.winfo_exists() else None)
         self.page_title.set(titles[page])
         if hasattr(self, "signal_mode_box"):
-            available = (page not in ("comparison", "sensitivity", "tuning_map", "identification", "tank", "model_result")
+            available = (page not in ("comparison", "sensitivity", "tuning_map", "identification", *object_pages, "model_result")
                          and self.last_calculation is not None and self.last_calculation["controller"] is not None)
             self.signal_mode_box.configure(state="readonly" if available else "disabled")
-            self.signal_mode_box.grid_remove() if page in ("tank", "model_result") else self.signal_mode_box.grid()
+            self.signal_mode_box.grid_remove() if page in (*object_pages, "model_result") else self.signal_mode_box.grid()
         self.nav_labels["disturbances"] = "Параметры опыта" if model.id == "absorber" else "Работа с моделью"
         for key, button in self.nav_buttons.items():
             visible = model.id == "absorber" or key in ("disturbances", "model_result")
@@ -718,7 +726,10 @@ class DynamicsControlApp(ttk.Frame):
         elif page == "tank":
             self.metric_strip.grid_remove()
             self.tank_page.draw()
-        elif previous_page in ("identification", "tank", "model_result") and page != "comparison":
+        elif page == "heater":
+            self.metric_strip.grid_remove()
+            self.heater_page.draw()
+        elif previous_page in ("identification", *object_pages, "model_result") and page != "comparison":
             self._draw_last_calculation()
         elif page != "comparison" and previous_page in ("comparison", "sensitivity", "tuning_map") and self._charts_show_comparison:
             self.analysis_panel.remove_map_colorbar()
@@ -770,6 +781,8 @@ class DynamicsControlApp(ttk.Frame):
     def _task_signature(self, kind):
         if kind == "tank":
             return [self.selected_model.get(), self.tank_page.signature()]
+        if kind == "heater":
+            return [self.selected_model.get(), self.heater_page.signature()]
         steady_prediction = self.assignment_panel.predicted_steady.get()
         try:
             steady_prediction = float(steady_prediction.replace(",", "."))
@@ -829,6 +842,8 @@ class DynamicsControlApp(ttk.Frame):
                 self.identification_page.summary.set(str(error))
             if self._task_kind == "tank" and not isinstance(error, CalculationCancelled):
                 self.tank_page.summary.set(str(error))
+            if self._task_kind == "heater" and not isinstance(error, CalculationCancelled):
+                self.heater_page.summary.set(str(error))
             self._set_status("Расчёт отменён" if isinstance(error, CalculationCancelled) else str(error),
                              error=not isinstance(error, CalculationCancelled))
             return
@@ -1208,6 +1223,7 @@ class DynamicsControlApp(ttk.Frame):
             "selected_model": MODELS.named(self.selected_model.get()).id,
             "model_results": copy_data(self.model_results) if copy_results else self.model_results,
             "tank": self.tank_page.capture(copy_results=copy_results),
+            "heater": self.heater_page.capture(copy_results=copy_results),
         }
 
     def _restore_laboratory(self, laboratory, result):
@@ -1268,11 +1284,15 @@ class DynamicsControlApp(ttk.Frame):
         self.comparison_page.refresh_table(laboratory["selected_runs"])
         self.identification_page.restore(laboratory.get("identification"))
         self.tank_page.restore(laboratory.get("tank"))
+        self.heater_page.restore(laboratory.get("heater"))
         self.model_results = copy.deepcopy(laboratory.get("model_results", {}))
         if result is not None and "absorber" not in self.model_results:
             self.model_results["absorber"] = MODELS.result("absorber", result)
         if self.tank_page.result is not None and "level_tank" not in self.model_results:
             self.model_results["level_tank"] = MODELS.result("level_tank", self.tank_page.result)
+        heater_record = self.heater_page.pi or self.heater_page.result
+        if heater_record is not None and "heated_tank" not in self.model_results:
+            self.model_results["heated_tank"] = MODELS.result("heated_tank", heater_record)
         self.selected_model.set(MODELS.get(laboratory["selected_model"]).name)
         self._show_page(laboratory["page"])
         self._mark_result_stale()
@@ -2174,11 +2194,18 @@ def _run_release_check(output_path):
             expected_tank = tank.capture()
             for extension in ("csv","html","pdf"):
                 write_tank_report(Path(directory)/f"tank.{extension}",expected_tank,extension)
+            app._show_page("heater")
+            heater = app.heater_page
+            heater.calculate(); wait_tank()
+            heater.calculate_pi(); wait_tank()
+            if heater.result is None or heater.pi is None or heater.pi["metrics"]["status"] != "settled":
+                raise RuntimeError(heater.summary.get())
+            expected_heater = heater.capture()
             from app.model_contract import read_result, write_result
             from app.model_output import write_model_report
             expected_models = copy.deepcopy(app.model_results)
             if set(expected_models) != {model.id for model in MODELS.all()}:
-                raise RuntimeError("Не получены общие результаты обеих моделей.")
+                raise RuntimeError("Не получены общие результаты всех моделей.")
             for model_id, common in expected_models.items():
                 app.selected_model.set(MODELS.get(model_id).name)
                 app._show_page("model_result")
@@ -2209,6 +2236,9 @@ def _run_release_check(output_path):
             if app.current_page != "tank" or app.tank_page.capture() != expected_tank:
                 raise RuntimeError("Не удалось точно восстановить работу с баком.")
             report["tank_workflow_verified"] = True
+            if app.heater_page.capture() != expected_heater:
+                raise RuntimeError("Не удалось точно восстановить работу с нагревателем.")
+            report["heater_workflow_verified"] = True
             if app.model_results != expected_models:
                 raise RuntimeError("Общие результаты моделей восстановлены неточно.")
             report["model_contract_verified"] = True
