@@ -9,6 +9,7 @@ from tkinter import filedialog, ttk
 
 from app.identification import experiment_columns, export_identification, identify_step, read_experiment, validate_experiment_state, quality_text
 from app.experiment_control import validate_step, compare_pi
+from app.model_contract import copy_data
 from .absorber_sensitivity import AbsorberSensitivity, VIEW as ABSORBER_VIEW
 
 
@@ -304,17 +305,17 @@ class IdentificationPage(ttk.Frame):
 
     def capture(self, *, validate=True, copy_results=True):
         result = None if self.result is None else {
-            key: value.tolist() if isinstance(value, np.ndarray) else copy.deepcopy(value) if copy_results else value
+            key: value.tolist() if isinstance(value, np.ndarray) else copy_data(value) if copy_results else value
             for key, value in self.result.items()}
-        snapshot = dict(headers=list(self.headers), rows=copy.deepcopy(self.rows) if copy_results else self.rows,
+        snapshot = dict(headers=list(self.headers), rows=copy_data(self.rows) if copy_results else self.rows,
             source=Path(self.source).name, columns=[v.get() for v in self.columns],
             units=[v.get() for v in self.units], delimiter=self.delimiter.get(),
             view=self.view.get(), result=result, result_current=self.result_current,
             experiment_id=self.experiment_id, data_revision=self.generation, result_revision=self.result_revision,
             metadata={k: v.get() for k, v in self.metadata.items()}, same_signals=self.same_signals.get(),
             pi_settings={k: v.get() for k, v in self.pi_settings.items()},
-            validation=copy.deepcopy(self.validation) if copy_results else self.validation,
-            pi_result=copy.deepcopy(self.pi_result) if copy_results else self.pi_result,
+            validation=copy_data(self.validation) if copy_results else self.validation,
+            pi_result=copy_data(self.pi_result) if copy_results else self.pi_result,
             absorber_sensitivity=self.absorber_sensitivity.capture(copy_results=copy_results),
             applied_origin=copy.deepcopy(self.applied_origin))
         return validate_experiment_state(snapshot) if validate else snapshot
@@ -361,7 +362,7 @@ class IdentificationPage(ttk.Frame):
             variable.set(state.get("pi_settings", {}).get(key, variable.get()))
         self.same_signals.set(state.get("same_signals", False))
         if state["result"] is not None:
-            result = copy.deepcopy(state["result"])
+            result = copy_data(state["result"])
             for key in ("time", "input", "output", "model", "residual"):
                 result[key] = np.asarray(result[key], dtype=float)
             self.accept(result)

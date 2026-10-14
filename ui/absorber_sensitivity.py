@@ -7,6 +7,7 @@ from tkinter import filedialog, ttk
 from app.absorber_sensitivity import FIELD_DEFAULTS, calculate, parse_fields
 from app.absorber_sensitivity_exporting import assessment_text, draw_responses, write_report
 from app.tank_sensitivity_exporting import case_label, draw_region
+from app.model_contract import copy_data
 
 
 VIEW = "Ошибки на абсорбере"
@@ -67,12 +68,12 @@ class AbsorberSensitivity(ttk.Frame):
         for button in self.buttons: button.configure(state="normal" if labels else "disabled")
 
     def capture(self, *, copy_results=True):
-        return dict(fields=self.configuration(), result=copy.deepcopy(self.result) if copy_results else self.result,
+        return dict(fields=self.configuration(), result=copy_data(self.result) if copy_results else self.result,
                     selected=self.index(), stale=self.stale())
 
     def restore(self, state):
         for key, var in self.fields.items(): var.set(state["fields"][key])
-        self.result = copy.deepcopy(state["result"])
+        self.result = copy_data(state["result"])
         self.refresh(state["selected"])
 
     def start(self):
@@ -134,6 +135,6 @@ class AbsorberSensitivity(ttk.Frame):
         path = filedialog.asksaveasfilename(title="Ошибки оценки на абсорбере", defaultextension=f".{fmt}", initialfile=f"absorber_identification_errors.{fmt}")
         if path:
             try:
-                write_report(path, dict(copy.deepcopy(self.result), exported_stale=self.stale()), self.index(), fmt)
+                write_report(path, dict(copy_data(self.result), exported_stale=self.stale()), self.index(), fmt)
                 self.page.app._set_status("Отчёт об ошибках оценки сохранён")
             except (ValueError, OSError) as error: self.page.summary.set(str(error))

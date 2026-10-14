@@ -14,6 +14,7 @@ from app.tank_state import FIELD_DEFAULTS, VIEWS, validate_tank_state
 from app.identification import identify_step, read_experiment, quality_text
 from app.experiment_control import validate_step
 from app.tank_exporting import STATUS_TEXT, EVENT_TEXT
+from app.model_contract import copy_data
 from ui.tank_sensitivity import TankSensitivity, VIEW as SENSITIVITY_VIEW
 
 
@@ -306,7 +307,7 @@ class TankPage(ttk.Frame):
             result=self.result,fit=self.fit,validation=self.validation,pi=self.pi,
             sensitivity_fields={k:v.get() for k,v in self.sensitivity.fields.items()},
             sensitivity=self.sensitivity.result,selected_sensitivity=self.sensitivity.index())
-        return copy.deepcopy(snapshot) if copy_results else snapshot
+        return copy_data(snapshot) if copy_results else snapshot
 
     def restore(self,state):
         state=validate_tank_state(state)

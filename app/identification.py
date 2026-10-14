@@ -8,6 +8,7 @@ from pathlib import Path
 import numpy as np
 
 from .background_tasks import check_cancelled
+from .model_contract import copy_data
 
 
 def step_quality(time, signal, output, model, gain, constant, delay, step_time):
@@ -128,7 +129,7 @@ def validate_experiment_state(state):
         return None
     if not isinstance(state, dict):
         raise ValueError("Эксперимент должен быть объектом JSON.")
-    state = copy.deepcopy(state)
+    state = copy_data(state)
     headers, rows = state.get("headers"), state.get("rows")
     if (not isinstance(headers, list) or any(not isinstance(h, str) or not h.strip() for h in headers)
             or len(set(headers)) != len(headers) or (headers and len(headers) < 3)):

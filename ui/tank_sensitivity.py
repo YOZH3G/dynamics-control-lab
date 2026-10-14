@@ -6,6 +6,7 @@ from tkinter import filedialog, ttk
 
 from app.tank_sensitivity import FIELD_DEFAULTS, calculate, parse_fields
 from app.tank_sensitivity_exporting import assessment_text, case_label, draw_region, draw_responses, write_report
+from app.model_contract import copy_data
 
 
 VIEW = "Ошибки идентификации"
@@ -52,7 +53,7 @@ class TankSensitivity(ttk.Frame):
     def restore(self, state):
         values = FIELD_DEFAULTS if state is None else state["sensitivity_fields"]
         for key, var in self.fields.items(): var.set(values[key])
-        self.result = None if state is None else copy.deepcopy(state["sensitivity"])
+        self.result = None if state is None else copy_data(state["sensitivity"])
         self.refresh(0 if state is None else state["selected_sensitivity"])
 
     def refresh(self, selected=0):
@@ -121,7 +122,7 @@ class TankSensitivity(ttk.Frame):
                 filetypes=((fmt.upper(), f"*.{fmt}"),), initialfile=f"tank_identification_errors.{fmt}")
         if path:
             try:
-                snapshot = copy.deepcopy(self.result)
+                snapshot = copy_data(self.result)
                 snapshot["exported_stale"] = snapshot["revision"] != self.page.revision or snapshot["configuration"] != self.configuration()
                 write_report(path, snapshot, self.index(), fmt)
                 self.page.app._set_status("Отчёт об ошибках идентификации сохранён")

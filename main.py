@@ -18,6 +18,7 @@ from app.calculations import (
     absorption_balance,
 )
 from app.comparison import MAX_COMPARISON_RUNS
+from app.model_contract import copy_data
 from app.background_tasks import BackgroundTask, CalculationCancelled
 from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
@@ -1205,7 +1206,7 @@ class DynamicsControlApp(ttk.Frame):
             "selected_runs": list(self.comparison_page.table.selection()), "last_calculation": snapshot,
             "identification": self.identification_page.capture(validate=False, copy_results=copy_results),
             "selected_model": MODELS.named(self.selected_model.get()).id,
-            "model_results": copy.deepcopy(self.model_results) if copy_results else self.model_results,
+            "model_results": copy_data(self.model_results) if copy_results else self.model_results,
             "tank": self.tank_page.capture(copy_results=copy_results),
         }
 
@@ -1303,7 +1304,7 @@ class DynamicsControlApp(ttk.Frame):
         try:
             state = self._autosave_state()
             if state != self._autosave_snapshot:
-                snapshot = copy.deepcopy(state)
+                snapshot = (copy_data(state[0]), list(state[1]), state[2])
                 write_session(self.autosave_path, self.comparison_page.runs, self.comparison_page.counter, snapshot[0])
                 self._autosave_snapshot = snapshot
         except (OSError, ValueError, TypeError) as error:
@@ -1315,7 +1316,8 @@ class DynamicsControlApp(ttk.Frame):
             try:
                 state = self._autosave_state()
                 if state != self._autosave_snapshot:
-                    snapshot, runs = copy.deepcopy(state), copy.deepcopy(self.comparison_page.runs)
+                    snapshot = (copy_data(state[0]), list(state[1]), state[2])
+                    runs = copy_data(self.comparison_page.runs)
                     def save(cancel, progress):
                         write_session(self.autosave_path, runs, snapshot[2], snapshot[0])
                         return snapshot

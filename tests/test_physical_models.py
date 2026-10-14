@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 from app.calculations import DEFAULT_MODEL_VALUES, STEP
-from app.model_contract import ModelRegistry, Parameter, PhysicalModel, Signal, read_result, write_result
+from app.model_contract import ModelRegistry, Parameter, PhysicalModel, Signal, copy_data, read_result, write_result
 from app.model_output import result_figures, write_model_report
 from app.physical_models import MODELS
 from app.simulation import run_simulation
@@ -141,6 +141,32 @@ class PhysicalModelTests(unittest.TestCase):
                     write_result(path, bad, MODELS)
                 self.assertEqual(path.read_bytes(), before)
             self.assertEqual(read_result(path, MODELS), valid)
+
+    def test_data_copy_matches_deepcopy_without_shared_containers(self):
+        array = np.arange(3.)
+        data = dict(time=[0, .5, 1.], flags=[True, None, "x"], nested=[[1., 2.], dict(a=[3])],
+                    pair=(1, [2.]), array=array)
+        copied = copy_data(data)
+        self.assertEqual(copied.keys(), data.keys())
+        self.assertEqual({k: v for k, v in copied.items() if k != "array"}, {k: v for k, v in data.items() if k != "array"})
+        np.testing.assert_array_equal(copied["array"], array)
+        for path in (("time",), ("flags",), ("nested",), ("nested", 0), ("nested", 1), ("nested", 1, "a"), ("pair", 1), ("array",)):
+            original, duplicate = data, copied
+            for key in path:
+                original, duplicate = original[key], duplicate[key]
+            self.assertIsNot(duplicate, original, path)
+        self.assertEqual(copy_data(MODELS.result("level_tank", simulate(DEFAULTS))), MODELS.result("level_tank", simulate(DEFAULTS)))
+
+    def test_result_validation_still_rejects_bool_and_non_finite_extras(self):
+        result = MODELS.result("level_tank", simulate(DEFAULTS))
+        broken = copy.deepcopy(result)
+        broken["signals"]["level"][3] = True
+        with self.assertRaises(ValueError):
+            MODELS.validate(broken)
+        broken = copy.deepcopy(result)
+        broken["configuration"] = dict(note=float("nan"))
+        with self.assertRaises(ValueError):
+            MODELS.validate(broken)
 
     def test_registry_rejects_duplicate_and_unknown_models(self):
         registry = ModelRegistry((heater(),))

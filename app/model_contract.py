@@ -9,6 +9,22 @@ import numpy as np
 
 from .background_tasks import check_cancelled
 
+_SCALARS = (int, float, str, bool, type(None))
+
+
+def copy_data(value):
+    """Deep copy of JSON-like data; lists of scalars are copied in C."""
+    kind = type(value)
+    if kind is dict:
+        return {key: copy_data(item) for key, item in value.items()}
+    if kind is list:
+        if set(map(type, value)) <= set(_SCALARS):
+            return value[:]
+        return [copy_data(item) for item in value]
+    if kind in _SCALARS:
+        return value
+    return copy.deepcopy(value)
+
 
 @dataclass(frozen=True)
 class Parameter:
@@ -115,7 +131,7 @@ class ModelRegistry:
         if type(result.get("model_version")) is not int or result["model_version"] != model.version:
             raise ValueError("Несовместимая версия расчёта модели.")
         def vector(values):
-            if (not isinstance(values, list) or any(type(v) not in (int, float) for v in values)
+            if (not isinstance(values, list) or not set(map(type, values)) <= {int, float}
                     or not 2 <= len(values) <= 200000):
                 raise ValueError("Результат: нужны конечные числовые сигналы.")
             a = np.asarray(values, dtype=float)
@@ -170,12 +186,13 @@ class ModelRegistry:
                     or not time[0] <= event["time"] <= time[-1]):
                 raise ValueError("Результат: неверное физическое событие.")
         try:
-            json.dumps(result, allow_nan=False)
+            # Time and signals are already checked as finite numbers above.
+            json.dumps({key: value for key, value in result.items() if key not in ("time", "signals")}, allow_nan=False)
         except (TypeError, ValueError) as error:
             raise ValueError("Результат должен содержать только конечные данные JSON.") from error
         if model.validate_result is not None:
             model.validate_result(result)
-        return copy.deepcopy(result)
+        return copy_data(result)
 
 
 def write_result(path, result, registry):

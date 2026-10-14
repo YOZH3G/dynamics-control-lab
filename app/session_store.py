@@ -16,6 +16,7 @@ from .validation import parse_disturbance, parse_nonnegative_number, parse_perce
 from .identification import validate_experiment_state, validate_experiment_origin
 from .tank_state import validate_tank_state
 from .physical_models import MODELS, run_model
+from .model_contract import copy_data
 
 
 FORMAT_VERSION = 3
@@ -83,7 +84,7 @@ def _validate_payload(payload):
 
 
 def _serialize_run(run):
-    serialized = copy.deepcopy(run)
+    serialized = copy_data(run)
     serialized["time"] = _serialize_signal(run.get("time"), "time")
     serialized["response"] = _serialize_signal(run.get("response"), "response")
     return serialized
@@ -105,7 +106,7 @@ def _deserialize_run(run):
             raise ValueError(f"Опыт: поле {key} должно быть непустым текстом.")
     if run["chain"] not in ("lean_gas", "rich_absorbent") or run["controller_type"] not in ("—", "P", "PI", "PID", "PD"):
         raise ValueError("Опыт: неизвестная цепь или тип регулятора.")
-    restored = copy.deepcopy(run)
+    restored = copy_data(run)
     restored["experiment_origin"] = validate_experiment_origin(run.get("experiment_origin"))
     restored["model_values"] = values
     restored["time"] = _deserialize_signal(run.get("time"), "time")
@@ -204,7 +205,7 @@ def validate_laboratory(laboratory):
         return None
     if not isinstance(laboratory, dict):
         raise ValueError("Лабораторная должна быть объектом JSON.")
-    restored = copy.deepcopy(laboratory)
+    restored = copy_data(laboratory)
     restored["tank"] = validate_tank_state(restored.get("tank"))
     restored.setdefault("selected_model", "absorber")
     model = MODELS.get(restored["selected_model"])
@@ -272,7 +273,7 @@ def validate_laboratory(laboratory):
             value = _finite_number(prediction.get("steady"), "steady")
             if not 0 <= value <= 1:
                 raise ValueError("Расчёт: прогноз концентрации должен быть в диапазоне 0–1.")
-        restored["last_calculation"] = {key: copy.deepcopy(calculation.get(key))
+        restored["last_calculation"] = {key: copy_data(calculation.get(key))
                                         for key in ("input_state", "title", "lesson", "prediction", "evaluation", "experiment_origin")}
     return restored
 
@@ -331,7 +332,7 @@ def restore_calculation(snapshot):
     result = run_model("absorber", dict(chain=scenario["chain"], parameters=scenario["model_values"],
                       component=scenario["component"] or 0, flow=scenario["flow"] or 0,
                       dynamics=dynamics, controller=controller))
-    result.update({key: copy.deepcopy(snapshot.get(key))
+    result.update({key: copy_data(snapshot.get(key))
                    for key in ("input_state", "title", "lesson", "prediction", "evaluation", "experiment_origin")})
     result["disturbance_type"] = scenario["disturbance_type"]
     return result
