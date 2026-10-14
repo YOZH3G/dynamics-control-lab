@@ -46,6 +46,7 @@ class AbsorberSensitivityTests(unittest.TestCase):
                         self.assertEqual(run["configuration"]["dynamics"], request["dynamics"])
                         self.assertEqual(c["process_gain"], abs(local["gain"]))
                         self.assertLess(abs(case["metrics"]["final_error"]), .005)
+                        self.assertEqual(case["metrics"]["final_error"], c["setpoint"]-run["signals"][output][-1])
                         for signal in ("xog", "xna", "control"):
                             self.assertTrue(np.all((np.asarray(run["signals"][signal]) >= 0) & (np.asarray(run["signals"][signal]) <= 1)))
                         # First control must move in the signed physical direction.
