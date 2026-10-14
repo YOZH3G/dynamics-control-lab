@@ -39,12 +39,6 @@ from app.exploration import (
     controller_setting_map,
     sensitivity_runs,
 )
-from app.laboratory import (
-    CORRECTION_OPTIONS,
-    DIRECTION_OPTIONS,
-    FASTEST_OPTIONS,
-    evaluate_prediction,
-)
 from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
 from app.settings_store import SettingsStore
@@ -58,6 +52,7 @@ from ui.tank_page import TankPage
 from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
+from ui.assignment_panel import AssignmentPanel
 from ui.comparison_panel import ComparisonPanel
 from ui.scenario_library import ScenarioLibrary
 from ui.theme import (
@@ -190,32 +185,14 @@ class DynamicsControlApp(ttk.Frame):
         self.response_chart_title = tk.StringVar(value="Кривая разгона")
         self.status_text = tk.StringVar(value="Готово к расчёту")
         self.active_scenario = tk.StringVar(value="Сценарий ещё не применён.")
-        self.assignment_tolerance_percent = 5.0
-        self.assignment_absolute_tolerance = 1e-6
-        self.current_lesson = self.scenario_library.scenarios[0]["lesson"]
         self.applied_scenario = copy.deepcopy(self.scenario_library.scenarios[0])
-        self.assignment_attempts = 0
-        self.assignment_evaluation = None
-        self.learning_mode = tk.BooleanVar(value=False)
-        self.learning_step = 1
-        self.lesson_summary = tk.StringVar()
-        self.learning_route = tk.StringVar()
-        self.student_name = tk.StringVar()
-        self.student_conclusion = tk.StringVar()
-        self.assignment_enabled = tk.BooleanVar(value=False)
-        self.predicted_direction = tk.StringVar()
-        self.predicted_steady = tk.StringVar()
-        self.predicted_fastest = tk.StringVar()
-        self.predicted_correction = tk.StringVar()
-        self.assignment_feedback = tk.StringVar(
-            value="Включите режим задания и заполните прогноз до расчёта."
-        )
         self.export_summary = tk.StringVar(value="Сначала выполните расчёт.")
         self.export_buttons = []
         self.last_calculation = None
         self.last_prediction = None
         self.controller_signal_axis = None
         self.comparison_page = ComparisonPanel(self)
+        self.assignment_panel = AssignmentPanel(self)
         self.sensitivity_parameter = tk.StringVar(value="Постоянная времени T")
         self.sensitivity_values = tk.StringVar(value="5; 10; 15; 20")
         self.sensitivity_summary = tk.StringVar(
@@ -255,16 +232,16 @@ class DynamicsControlApp(ttk.Frame):
         self._build_layout()
         self.time_cursor = SharedTimeCursor(((self.disturbance_canvas, self.disturbance_toolbar, self.chart_readouts[0]),
                                               (self.response_canvas, self.response_toolbar, self.chart_readouts[1])))
-        self._update_lesson_summary()
-        self._update_learning_route()
+        self.assignment_panel.update_summary()
+        self.assignment_panel.update_route()
         self._select_chain(LEAN_GAS)
         for variable in (self.component_enabled, self.flow_enabled, self.component_value, self.flow_value,
                          self.disturbance_type, self.start_time, self.simulation_duration, self.effect_duration,
                          self.time_constant, self.delay, self.controller_enabled, self.controller_type,
                          self.proportional_gain, self.integral_time, self.derivative_time, self.control_limit, self.setpoint, *self.extension_values.values()):
             variable.trace_add("write", self._mark_result_stale)
-        for variable in (self.assignment_enabled, self.predicted_direction, self.predicted_steady,
-                         self.predicted_fastest, self.predicted_correction, self.sensitivity_parameter,
+        for variable in (self.assignment_panel.assignment_enabled, self.assignment_panel.predicted_direction, self.assignment_panel.predicted_steady,
+                         self.assignment_panel.predicted_fastest, self.assignment_panel.predicted_correction, self.sensitivity_parameter,
                          *self.extension_values.values(), self.sensitivity_values, self.map_controller_type, self.map_gain_min,
                          self.map_gain_max, self.map_integral_min, self.map_integral_max,
                          self.map_derivative_time, self.map_grid_size):
@@ -346,7 +323,7 @@ class DynamicsControlApp(ttk.Frame):
         ttk.Label(topbar, text=APP_NAME, style="TopbarTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.route_stage = tk.StringVar(value="Учебный маршрут")
         self.route_button = ttk.Button(topbar, textvariable=self.route_stage,
-                                       command=self._advance_learning_step, style="Toolbar.TButton")
+                                       command=self.assignment_panel.advance_step, style="Toolbar.TButton")
         self.route_button.grid(row=0, column=1, sticky="e")
         self.selected_model = tk.StringVar(value="Абсорбер")
         model_box = ttk.Combobox(topbar, textvariable=self.selected_model, values=tuple(model.name for model in MODELS.all()),
@@ -566,7 +543,7 @@ class DynamicsControlApp(ttk.Frame):
             pane.bind("<ButtonRelease-1>", self._end_layout_drag, add="+")
             pane.bind("<Unmap>", self._end_layout_drag, add="+")
         self.root.bind("<ButtonRelease-1>", self._end_layout_drag, add="+")
-        self._update_learning_route()
+        self.assignment_panel.update_route()
 
     def _begin_layout_drag(self, event):
         pane = event.widget
@@ -1285,16 +1262,16 @@ class DynamicsControlApp(ttk.Frame):
     def _task_signature(self, kind):
         if kind == "tank":
             return [self.selected_model.get(), self.tank_page.signature()]
-        steady_prediction = self.predicted_steady.get()
+        steady_prediction = self.assignment_panel.predicted_steady.get()
         try:
             steady_prediction = float(steady_prediction.replace(",", "."))
         except ValueError:
             pass
         signature = [self._normalized_input_state(self._capture_input_state()),
-                     copy.deepcopy(self.current_lesson), self.assignment_tolerance_percent,
-                     self.assignment_absolute_tolerance, self.assignment_attempts,
-                     self.assignment_enabled.get(), self.predicted_direction.get(),
-                     steady_prediction, self.predicted_fastest.get(), self.predicted_correction.get()]
+                     copy.deepcopy(self.assignment_panel.current_lesson), self.assignment_panel.assignment_tolerance_percent,
+                     self.assignment_panel.assignment_absolute_tolerance, self.assignment_panel.assignment_attempts,
+                     self.assignment_panel.assignment_enabled.get(), self.assignment_panel.predicted_direction.get(),
+                     steady_prediction, self.assignment_panel.predicted_fastest.get(), self.assignment_panel.predicted_correction.get()]
         if kind == "sensitivity":
             try:
                 values = self._parse_sensitivity_values()
@@ -1560,94 +1537,7 @@ class DynamicsControlApp(ttk.Frame):
 
     def _build_scenarios_card(self, parent):
         self.scenario_library.build(parent)
-
-        lesson_card = self._card(parent, 1, padding=(14, 12))
-        ttk.Label(lesson_card, text="Учебное задание", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
-        ttk.Label(
-            lesson_card, textvariable=self.lesson_summary, style="Body.TLabel",
-            justify="left", wraplength=330,
-        ).grid(row=1, column=0, sticky="w")
-        ttk.Checkbutton(
-            lesson_card, text="Пошаговый учебный режим", variable=self.learning_mode,
-            command=self._update_learning_route,
-        ).grid(row=2, column=0, sticky="w", pady=(10, 4))
-        ttk.Label(lesson_card, textvariable=self.learning_route, style="Muted.TLabel", wraplength=330).grid(
-            row=3, column=0, sticky="w"
-        )
-        ttk.Button(
-            lesson_card, text="Следующий шаг", command=self._advance_learning_step,
-            style="Secondary.TButton",
-        ).grid(row=4, column=0, sticky="ew", pady=(8, 0))
-
-        assignment = self._card(parent, 2, padding=(14, 12))
-        ttk.Checkbutton(
-            assignment,
-            text="Режим задания: сначала сделать прогноз",
-            variable=self.assignment_enabled,
-            command=self._update_assignment_states,
-        ).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
-        prediction_fields = (
-            ("Направление изменения выхода", self.predicted_direction, DIRECTION_OPTIONS, "direction_prediction"),
-            ("Какая реакция завершится быстрее", self.predicted_fastest, FASTEST_OPTIONS, "fastest_prediction"),
-            ("Устранит ли регулятор отклонение", self.predicted_correction, CORRECTION_OPTIONS, "correction_prediction"),
-        )
-        self.prediction_widgets = []
-        row = 1
-        for label, variable, values, attribute in prediction_fields:
-            ttk.Label(assignment, text=label, style="Body.TLabel", wraplength=160).grid(
-                row=row, column=0, sticky="w", pady=4
-            )
-            widget = ttk.Combobox(
-                assignment,
-                textvariable=variable,
-                values=values,
-                state="disabled",
-                width=20,
-            )
-            widget.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
-            setattr(self, attribute, widget)
-            self.prediction_widgets.append(widget)
-            row += 1
-        ttk.Label(assignment, text="Ожидаемое установившееся значение, %", style="Body.TLabel", wraplength=170).grid(
-            row=row, column=0, sticky="w", pady=4
-        )
-        self.steady_prediction = ttk.Entry(
-            assignment,
-            textvariable=self.predicted_steady,
-            state="disabled",
-            width=22,
-        )
-        self.steady_prediction.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
-        self.prediction_widgets.append(self.steady_prediction)
-        row += 1
-        ttk.Label(assignment, text="Студент", style="Body.TLabel").grid(
-            row=row, column=0, sticky="w", pady=4
-        )
-        self.student_name_entry = ttk.Entry(assignment, textvariable=self.student_name, state="disabled", width=22)
-        self.student_name_entry.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
-        self.prediction_widgets.append(self.student_name_entry)
-        row += 1
-        ttk.Label(assignment, text="Краткий вывод", style="Body.TLabel").grid(
-            row=row, column=0, sticky="w", pady=4
-        )
-        self.student_conclusion_entry = ttk.Entry(assignment, textvariable=self.student_conclusion, state="disabled", width=22)
-        self.student_conclusion_entry.grid(row=row, column=1, sticky="e", padx=(8, 0), pady=4)
-        self.prediction_widgets.append(self.student_conclusion_entry)
-        assignment.columnconfigure(0, weight=1)
-
-        feedback = self._card(parent, 3, padding=(14, 12))
-        ttk.Label(feedback, text="Проверка прогноза", style="CardTitle.TLabel").grid(
-            row=0, column=0, sticky="w", pady=(0, 8)
-        )
-        ttk.Label(
-            feedback,
-            textvariable=self.assignment_feedback,
-            style="Body.TLabel",
-            justify="left",
-            wraplength=330,
-        ).grid(row=1, column=0, sticky="w")
+        self.assignment_panel.build(parent)
 
     def _build_export_card(self, parent):
         card = self._card(parent, 0)
@@ -1783,12 +1673,12 @@ class DynamicsControlApp(ttk.Frame):
             page.scroll_to_top()
         self.applied_scenario = copy.deepcopy(scenario)
         self.model_values = scenario["model_values"].copy()
-        self.current_lesson = scenario["lesson"]
-        self.assignment_attempts = 0
-        self.assignment_evaluation = None
-        self.learning_step = 1
-        self._update_lesson_summary()
-        self._update_learning_route()
+        self.assignment_panel.current_lesson = scenario["lesson"]
+        self.assignment_panel.assignment_attempts = 0
+        self.assignment_panel.assignment_evaluation = None
+        self.assignment_panel.learning_step = 1
+        self.assignment_panel.update_summary()
+        self.assignment_panel.update_route()
         self._select_chain(scenario["chain"])
         self.component_enabled.set(scenario["component"] is not None)
         self.flow_enabled.set(scenario["flow"] is not None)
@@ -1824,15 +1714,15 @@ class DynamicsControlApp(ttk.Frame):
                 self._format_number(100 * (self._current_baseline() if setpoint is None else setpoint))
             )
 
-        self.assignment_tolerance_percent = scenario.get("steady_tolerance_percent", 5.0)
-        self.assignment_absolute_tolerance = scenario.get("steady_absolute_tolerance", 1e-6)
+        self.assignment_panel.assignment_tolerance_percent = scenario.get("steady_tolerance_percent", 5.0)
+        self.assignment_panel.assignment_absolute_tolerance = scenario.get("steady_absolute_tolerance", 1e-6)
         self._update_input_states()
         self._clear_result_values()
-        self.predicted_direction.set("")
-        self.predicted_steady.set("")
-        self.predicted_fastest.set("")
-        self.predicted_correction.set("")
-        self.assignment_feedback.set("Заполните прогноз и нажмите «Рассчитать».")
+        self.assignment_panel.predicted_direction.set("")
+        self.assignment_panel.predicted_steady.set("")
+        self.assignment_panel.predicted_fastest.set("")
+        self.assignment_panel.predicted_correction.set("")
+        self.assignment_panel.assignment_feedback.set("Заполните прогноз и нажмите «Рассчитать».")
         scenario_title = scenario["name"]
         if variant_number is not None:
             scenario_title += f" — вариант {variant_number}"
@@ -1874,57 +1764,6 @@ class DynamicsControlApp(ttk.Frame):
         except OSError:
             pass
         self.root.destroy()
-
-    def _update_assignment_states(self):
-        enabled = self.assignment_enabled.get()
-        for widget in self.prediction_widgets:
-            widget.configure(state="normal" if enabled else "disabled")
-        for widget in (
-            self.direction_prediction,
-            self.fastest_prediction,
-            self.correction_prediction,
-        ):
-            widget.configure(state="readonly" if enabled else "disabled")
-        self.assignment_feedback.set(
-            "Заполните прогноз и нажмите «Рассчитать»."
-            if enabled
-            else "Включите режим задания и заполните прогноз до расчёта."
-        )
-        self.calculate_button_text.set("Проверить прогноз" if enabled else "Рассчитать")
-
-    def _update_lesson_summary(self):
-        lesson = self.current_lesson
-        questions = lesson["questions"]
-        question_text = "" if not questions else "\nВопросы:\n" + "\n".join(f"• {item}" for item in questions)
-        self.lesson_summary.set(
-            f"{lesson['task']}\n\n{lesson['guidance']}"
-            f"{question_text}\n\nПопыток для прогноза: {lesson['attempt_limit']}."
-        )
-
-    def _update_learning_route(self):
-        steps = ("Задание", "Параметры опыта", "Регулятор", "Результаты", "Сравнение", "Отчёт")
-        if not self.learning_mode.get():
-            self.learning_route.set("Свободный доступ ко всем разделам. Включите режим для маршрута.")
-            if hasattr(self, "route_stage"):
-                self.route_stage.set("Учебный маршрут")
-                self.route_button.configure(state="normal")
-            return
-        index = self.learning_step - 1
-        self.learning_route.set(" → ".join(f"[{i + 1}] {text}" if i == index else text
-                                          for i, text in enumerate(steps)))
-        if hasattr(self, "route_stage"):
-            next_step = " → " + steps[index + 1] if index < 5 else ""
-            self.route_stage.set(f"{self.learning_step}/6: {steps[index]}{next_step}")
-            self.route_button.configure(state="normal" if index < 5 else "disabled")
-
-    def _advance_learning_step(self):
-        if not self.learning_mode.get():
-            self.learning_mode.set(True)
-            self.learning_step = 1
-        else:
-            self.learning_step = min(6, self.learning_step + 1)
-        self._update_learning_route()
-        self._show_page(("scenarios", "disturbances", "controller", "results", "comparison", "export")[self.learning_step - 1])
 
     def _set_disturbance_units(self, units):
         self._disturbance_units = units
@@ -1971,60 +1810,6 @@ class DynamicsControlApp(ttk.Frame):
             self._changing_units = False
         self._mark_result_stale()
         self._draw_control_diagram()
-
-    def _read_prediction(self):
-        if not self.assignment_enabled.get():
-            return None
-        if self.assignment_attempts >= self.current_lesson["attempt_limit"]:
-            self.assignment_feedback.set("Лимит попыток для этого задания исчерпан.")
-            self._show_page("scenarios")
-            raise ValueError("Лимит попыток исчерпан.")
-        self.steady_prediction.configure(style="TEntry")
-        if not all((
-            self.predicted_direction.get(),
-            self.predicted_fastest.get(),
-            self.predicted_correction.get(),
-            self.predicted_steady.get().strip(),
-        )):
-            self.assignment_feedback.set("Заполните все четыре поля прогноза до расчёта.")
-            self._show_page("scenarios")
-            raise ValueError("Прогноз заполнен не полностью.")
-        try:
-            steady = parse_percentage(self.predicted_steady.get())
-        except ValueError as error:
-            self.steady_prediction.configure(style="Error.TEntry")
-            self.assignment_feedback.set(f"Установившееся значение: {error}")
-            self._show_page("scenarios")
-            raise
-        return {
-            "direction": self.predicted_direction.get(),
-            "steady": steady,
-            "fastest": self.predicted_fastest.get(),
-            "correction": self.predicted_correction.get(),
-        }
-
-    def _evaluate_assignment(self, prediction, outcome):
-        if prediction is None:
-            return
-        evaluation = evaluate_prediction(
-            prediction,
-            outcome,
-            self.assignment_tolerance_percent,
-            lesson=self.current_lesson,
-            controller=self.last_calculation["controller"] if self.last_calculation is not None else None,
-            steady_absolute_tolerance=self.assignment_absolute_tolerance,
-        )
-        self.assignment_attempts += 1
-        self.assignment_evaluation = evaluation
-        remaining = self.current_lesson["attempt_limit"] - self.assignment_attempts
-        self.assignment_feedback.set(
-            f"Результат: {evaluation['score']} из {evaluation['total']}.\n"
-            + "\n".join(evaluation["lines"])
-            + f"\nОсталось попыток: {remaining}."
-        )
-        if self.learning_mode.get():
-            self.learning_step = max(self.learning_step, 4)
-            self._update_learning_route()
 
     def _save_comparison_session(self):
         selected = filedialog.asksaveasfilename(
@@ -2091,16 +1876,16 @@ class DynamicsControlApp(ttk.Frame):
             snapshot["experiment_origin"] = copy.deepcopy(calculation.get("experiment_origin"))
         return {
             "input_state": self._capture_input_state(), "scenario": copy.deepcopy(self.applied_scenario),
-            "lesson": copy.deepcopy(self.current_lesson), "scenario_name": self.scenario_library.selected.get(),
+            "lesson": copy.deepcopy(self.assignment_panel.current_lesson), "scenario_name": self.scenario_library.selected.get(),
             "variant": int(self.scenario_library.variant.get()), "active_scenario": self.active_scenario.get(),
-            "learning_mode": self.learning_mode.get(), "learning_step": self.learning_step,
-            "assignment_enabled": self.assignment_enabled.get(), "attempts": self.assignment_attempts,
-            "steady_tolerance_percent": self.assignment_tolerance_percent,
-            "steady_absolute_tolerance": self.assignment_absolute_tolerance,
-            "prediction_fields": {"direction": self.predicted_direction.get(), "steady": self.predicted_steady.get(),
-                                  "fastest": self.predicted_fastest.get(), "correction": self.predicted_correction.get()},
-            "evaluation": copy.deepcopy(self.assignment_evaluation), "student_name": self.student_name.get(),
-            "conclusion": self.student_conclusion.get(), "page": self.current_page,
+            "learning_mode": self.assignment_panel.learning_mode.get(), "learning_step": self.assignment_panel.learning_step,
+            "assignment_enabled": self.assignment_panel.assignment_enabled.get(), "attempts": self.assignment_panel.assignment_attempts,
+            "steady_tolerance_percent": self.assignment_panel.assignment_tolerance_percent,
+            "steady_absolute_tolerance": self.assignment_panel.assignment_absolute_tolerance,
+            "prediction_fields": {"direction": self.assignment_panel.predicted_direction.get(), "steady": self.assignment_panel.predicted_steady.get(),
+                                  "fastest": self.assignment_panel.predicted_fastest.get(), "correction": self.assignment_panel.predicted_correction.get()},
+            "evaluation": copy.deepcopy(self.assignment_panel.assignment_evaluation), "student_name": self.assignment_panel.student_name.get(),
+            "conclusion": self.assignment_panel.student_conclusion.get(), "page": self.current_page,
             "selected_runs": list(self.comparison_page.table.selection()), "last_calculation": snapshot,
             "identification": self.identification_page.capture(validate=False, copy_results=copy_results),
             "selected_model": MODELS.named(self.selected_model.get()).id,
@@ -2120,19 +1905,19 @@ class DynamicsControlApp(ttk.Frame):
         self.scenario_library.selected.set(selected_name if selected_name in self.scenario_library.by_name else scenario["name"])
         self.scenario_library.variant.set(str(laboratory["variant"]))
         self.scenario_library.update_description()
-        self.current_lesson = laboratory["lesson"]
-        self.assignment_tolerance_percent = laboratory["steady_tolerance_percent"]
-        self.assignment_absolute_tolerance = laboratory["steady_absolute_tolerance"]
-        self.learning_mode.set(laboratory["learning_mode"])
-        self.learning_step = laboratory["learning_step"]
-        self.assignment_enabled.set(laboratory["assignment_enabled"])
-        self._update_assignment_states()
-        self.assignment_attempts = laboratory["attempts"]
-        self.assignment_evaluation = laboratory["evaluation"]
-        self.student_name.set(laboratory["student_name"])
-        self.student_conclusion.set(laboratory["conclusion"])
-        for key, variable in (("direction", self.predicted_direction), ("steady", self.predicted_steady),
-                              ("fastest", self.predicted_fastest), ("correction", self.predicted_correction)):
+        self.assignment_panel.current_lesson = laboratory["lesson"]
+        self.assignment_panel.assignment_tolerance_percent = laboratory["steady_tolerance_percent"]
+        self.assignment_panel.assignment_absolute_tolerance = laboratory["steady_absolute_tolerance"]
+        self.assignment_panel.learning_mode.set(laboratory["learning_mode"])
+        self.assignment_panel.learning_step = laboratory["learning_step"]
+        self.assignment_panel.assignment_enabled.set(laboratory["assignment_enabled"])
+        self.assignment_panel.update_states()
+        self.assignment_panel.assignment_attempts = laboratory["attempts"]
+        self.assignment_panel.assignment_evaluation = laboratory["evaluation"]
+        self.assignment_panel.student_name.set(laboratory["student_name"])
+        self.assignment_panel.student_conclusion.set(laboratory["conclusion"])
+        for key, variable in (("direction", self.assignment_panel.predicted_direction), ("steady", self.assignment_panel.predicted_steady),
+                              ("fastest", self.assignment_panel.predicted_fastest), ("correction", self.assignment_panel.predicted_correction)):
             variable.set(laboratory["prediction_fields"][key])
         self.last_calculation = result
         self.last_prediction = None if result is None else copy.deepcopy(result["prediction"])
@@ -2156,13 +1941,13 @@ class DynamicsControlApp(ttk.Frame):
         if result is None:
             self._draw_static_charts()
         self.active_scenario.set(laboratory["active_scenario"])
-        self._update_lesson_summary()
-        self._update_learning_route()
-        evaluation = self.assignment_evaluation
+        self.assignment_panel.update_summary()
+        self.assignment_panel.update_route()
+        evaluation = self.assignment_panel.assignment_evaluation
         if evaluation is not None:
-            self.assignment_feedback.set(f"Результат: {evaluation['score']} из {evaluation['total']}.\n"
+            self.assignment_panel.assignment_feedback.set(f"Результат: {evaluation['score']} из {evaluation['total']}.\n"
                                          + "\n".join(evaluation["lines"])
-                                         + f"\nОсталось попыток: {self.current_lesson['attempt_limit'] - self.assignment_attempts}.")
+                                         + f"\nОсталось попыток: {self.assignment_panel.current_lesson['attempt_limit'] - self.assignment_panel.assignment_attempts}.")
         self.comparison_page.refresh_table(laboratory["selected_runs"])
         self.identification_page.restore(laboratory.get("identification"))
         self.tank_page.restore(laboratory.get("tank"))
@@ -2174,7 +1959,7 @@ class DynamicsControlApp(ttk.Frame):
         self.selected_model.set(MODELS.get(laboratory["selected_model"]).name)
         self._show_page(laboratory["page"])
         self._mark_result_stale()
-        self.calculate_button_text.set("Проверить прогноз" if self.assignment_enabled.get()
+        self.calculate_button_text.set("Проверить прогноз" if self.assignment_panel.assignment_enabled.get()
                                        else "Пересчитать" if result is not None else "Рассчитать")
 
     def _autosave_state(self):
@@ -2469,8 +2254,8 @@ class DynamicsControlApp(ttk.Frame):
             self._mark_result_stale()
             path = writer(
                 selected, self.last_calculation, title, self.last_calculation["lesson"],
-                self.last_calculation["evaluation"], self.student_name.get(),
-                self.student_conclusion.get(),
+                self.last_calculation["evaluation"], self.assignment_panel.student_name.get(),
+                self.assignment_panel.student_conclusion.get(),
                 (self.disturbance_axis.figure, self.response_axis.figure),
                 prediction=self.last_calculation["prediction"],
                 comparison_runs=self.comparison_page.runs,
@@ -2834,7 +2619,7 @@ class DynamicsControlApp(ttk.Frame):
     def _calculate(self):
         self._clear_errors()
         try:
-            prediction = self._read_prediction()
+            prediction = self.assignment_panel.read_prediction()
             component_fraction = self._read_fraction(
                 self.component_enabled.get(), self.component_value, self.component_error, self.component_entry
             )
@@ -2849,7 +2634,7 @@ class DynamicsControlApp(ttk.Frame):
 
         state = self._capture_input_state()
         metadata = {"disturbance_type": self.disturbance_type.get(), "input_state": state,
-                    "title": self._active_scenario_title(), "lesson": copy.deepcopy(self.current_lesson),
+                    "title": self._active_scenario_title(), "lesson": copy.deepcopy(self.assignment_panel.current_lesson),
                     "experiment_origin": self.identification_page.active_origin()}
         self._start_task("Расчёт опыта", lambda cancel, progress: run_model("absorber",
             dict(chain=state["chain"], parameters=state["model_values"], component=component_fraction,
@@ -2893,8 +2678,8 @@ class DynamicsControlApp(ttk.Frame):
             button.configure(state="normal")
         self.export_summary.set("Расчёт готов к экспорту." if result["setpoint_reachable"] is not False
                                 else "Задание недостижимо при допустимых η; показано насыщение регулятора.")
-        self._evaluate_assignment(prediction, result["prediction_outcome"])
-        result["evaluation"] = copy.deepcopy(self.assignment_evaluation) if prediction is not None else None
+        self.assignment_panel.evaluate(prediction, result["prediction_outcome"])
+        result["evaluation"] = copy.deepcopy(self.assignment_panel.assignment_evaluation) if prediction is not None else None
         settling_time = result["metrics"]["settling_time"]
         settling_summary = (
             "не установилось"
@@ -2907,7 +2692,7 @@ class DynamicsControlApp(ttk.Frame):
             f"отклонение {result['metrics']['maximum_deviation']:.4g} · {settling_summary}"
         )
         self.calculate_button_text.set("Пересчитать")
-        if self.learning_mode.get():
+        if self.assignment_panel.learning_mode.get():
             self._show_page("scenarios" if prediction is not None else "results")
         self._set_status("Расчёт выполнен")
 
@@ -3024,7 +2809,7 @@ class DynamicsControlApp(ttk.Frame):
         self.calculation_steps.set("Выполните расчёт, чтобы увидеть происхождение результата.")
         if hasattr(self, "calculate_button_text"):
             self.calculate_button_text.set(
-                "Проверить прогноз" if self.assignment_enabled.get() else "Рассчитать"
+                "Проверить прогноз" if self.assignment_panel.assignment_enabled.get() else "Рассчитать"
             )
         for variable in self.transition_values.values():
             variable.set("—")
@@ -3678,7 +3463,7 @@ def _run_release_check(output_path):
                     write_model_report(Path(directory)/f"{model_id}-result.{extension}", common, extension, MODELS)
             app._show_page("tank")
             expected = app.last_calculation["final_response"].copy()
-            app.student_conclusion.set("Проверка восстановления релиза")
+            app.assignment_panel.student_conclusion.set("Проверка восстановления релиза")
             app._save_autosave()
             if not app.autosave_path.exists():
                 raise RuntimeError(app.status_text.get())
@@ -3689,7 +3474,7 @@ def _run_release_check(output_path):
             app = DynamicsControlApp(root, scenario_path)
             if (app.last_calculation is None
                     or not np.array_equal(expected, app.last_calculation["final_response"])
-                    or app.student_conclusion.get() != "Проверка восстановления релиза"):
+                    or app.assignment_panel.student_conclusion.get() != "Проверка восстановления релиза"):
                 raise RuntimeError("Не удалось точно восстановить расчёт и пользовательские данные.")
             if app.identification_page.capture() != expected_experiment:
                 raise RuntimeError("Эксперимент и проверка PI восстановлены неточно.")

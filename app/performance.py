@@ -168,7 +168,7 @@ def run_check(output_path, app_class, version):
                 if now < deadline:
                     root.after(10, heartbeat)
 
-            app.student_conclusion.set("Performance check")
+            app.assignment_panel.student_conclusion.set("Performance check")
             root.after(10, heartbeat)
             root.after(20, app._autosave_tick)
             cpu = time.process_time()

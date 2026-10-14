@@ -189,7 +189,7 @@ class ScenarioLibrary:
             self.update_description()
         else:
             self.description.set(scenario["description"])
-        self.app.assignment_enabled.set(False)
-        self.app._update_assignment_states()
+        self.app.assignment_panel.assignment_enabled.set(False)
+        self.app.assignment_panel.update_states()
         self.app._apply_scenario_data(scenario)
         self.app._calculate()

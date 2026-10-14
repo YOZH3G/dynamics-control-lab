@@ -78,7 +78,7 @@ class GuiStateTests(unittest.TestCase):
         app.root.after_cancel(app._autosave_job)
         app._save_autosave()
         original = app.autosave_path.read_bytes()
-        app.student_conclusion.set("Повторная запись")
+        app.assignment_panel.student_conclusion.set("Повторная запись")
         with patch("main.write_session", side_effect=OSError("Disk unavailable")):
             app._autosave_tick()
             app._finish_autosave(wait=True)
@@ -106,7 +106,7 @@ class GuiStateTests(unittest.TestCase):
                 ticks = []
                 app.root.after(0, lambda: ticks.append(True)); app.root.update()
                 self.assertTrue(ticks)
-                app.student_conclusion.set("Изменено во время записи")
+                app.assignment_panel.student_conclusion.set("Изменено во время записи")
                 release.set(); app._finish_autosave(wait=True)
             app._save_autosave()
             _, _, restored = read_laboratory_session(app.autosave_path)
@@ -672,14 +672,14 @@ class GuiStateTests(unittest.TestCase):
     def test_new_window_automatically_restores_saved_laboratory(self):
         import numpy as np
         original = self.app.last_calculation["final_response"].copy()
-        self.app.student_conclusion.set("Восстановлено после запуска")
+        self.app.assignment_panel.student_conclusion.set("Восстановлено после запуска")
         self.app.component_value.set("-")
         self.app._close_application()
         self.root = tk.Tk()
         self.root.withdraw()
         with patch.object(main, "ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
-        self.assertEqual(self.app.student_conclusion.get(), "Восстановлено после запуска")
+        self.assertEqual(self.app.assignment_panel.student_conclusion.get(), "Восстановлено после запуска")
         self.assertEqual(self.app.component_value.get(), "-")
         np.testing.assert_array_equal(self.app.last_calculation["final_response"], original)
         self.assertIn("автосохранения", self.app.status_text.get())
@@ -687,40 +687,40 @@ class GuiStateTests(unittest.TestCase):
     def test_full_laboratory_restores_draft_result_and_assignment_without_using_attempt(self):
         import numpy as np
         app = self.app
-        app.current_lesson["attempt_limit"] = 3
-        app.assignment_enabled.set(True)
-        app.predicted_direction.set("Уменьшится")
-        app.predicted_fastest.set("Без сравнения")
-        app.predicted_correction.set("Регулятор выключен")
-        app.predicted_steady.set("26.27")
+        app.assignment_panel.current_lesson["attempt_limit"] = 3
+        app.assignment_panel.assignment_enabled.set(True)
+        app.assignment_panel.predicted_direction.set("Уменьшится")
+        app.assignment_panel.predicted_fastest.set("Без сравнения")
+        app.assignment_panel.predicted_correction.set("Регулятор выключен")
+        app.assignment_panel.predicted_steady.set("26.27")
         app._calculate()
         self.wait_for_task()
         original = app.last_calculation
         app.comparison_page.add_current()
-        app.learning_mode.set(True)
-        app.learning_step = 4
-        app.student_name.set("Студент")
-        app.student_conclusion.set("Проверен баланс")
+        app.assignment_panel.learning_mode.set(True)
+        app.assignment_panel.learning_step = 4
+        app.assignment_panel.student_name.set("Студент")
+        app.assignment_panel.student_conclusion.set("Проверен баланс")
         app.component_value.set("-")
-        app.predicted_steady.set("26,")
+        app.assignment_panel.predicted_steady.set("26,")
         path = Path(self.directory.name) / "laboratory.json"
         write_session(path, app.comparison_page.runs, app.comparison_page.counter, app._capture_laboratory())
         runs, counter, laboratory = read_laboratory_session(path)
         result = restore_calculation(laboratory["last_calculation"])
         app._reset()
-        app.student_name.set("")
-        app.assignment_attempts = 0
+        app.assignment_panel.student_name.set("")
+        app.assignment_panel.assignment_attempts = 0
         app.comparison_page.runs, app.comparison_page.counter = runs, counter
         app._restore_laboratory(laboratory, result)
         np.testing.assert_array_equal(app.last_calculation["final_response"], original["final_response"])
         np.testing.assert_array_equal(app.last_calculation["time"], original["time"])
         self.assertEqual(app.component_value.get(), "-")
-        self.assertEqual(app.predicted_steady.get(), "26,")
-        self.assertEqual(app.assignment_attempts, 1)
-        self.assertEqual(app.assignment_evaluation, original["evaluation"])
-        self.assertEqual(app.learning_step, 4)
-        self.assertEqual(app.student_name.get(), "Студент")
-        self.assertEqual(app.student_conclusion.get(), "Проверен баланс")
+        self.assertEqual(app.assignment_panel.predicted_steady.get(), "26,")
+        self.assertEqual(app.assignment_panel.assignment_attempts, 1)
+        self.assertEqual(app.assignment_panel.assignment_evaluation, original["evaluation"])
+        self.assertEqual(app.assignment_panel.learning_step, 4)
+        self.assertEqual(app.assignment_panel.student_name.get(), "Студент")
+        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Проверен баланс")
 
     def test_broken_nested_import_does_not_change_current_work(self):
         import json
@@ -738,20 +738,20 @@ class GuiStateTests(unittest.TestCase):
 
     def test_autosave_recovers_backup_and_preserves_corrupt_copy(self):
         app = self.app
-        app.student_conclusion.set("Первая корректная копия")
+        app.assignment_panel.student_conclusion.set("Первая корректная копия")
         app._save_autosave()
-        app.student_conclusion.set("Вторая копия")
+        app.assignment_panel.student_conclusion.set("Вторая копия")
         app._save_autosave()
         app.autosave_path.write_text("broken", encoding="utf-8")
-        app.student_conclusion.set("")
+        app.assignment_panel.student_conclusion.set("")
         app._restore_autosave()
-        self.assertEqual(app.student_conclusion.get(), "Первая корректная копия")
+        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Первая корректная копия")
         self.assertEqual(app.autosave_path.with_suffix(".json.corrupt").read_text(encoding="utf-8"), "broken")
         self.assertIn("резервного", app.status_text.get())
         app.autosave_path.unlink()
-        app.student_conclusion.set("")
+        app.assignment_panel.student_conclusion.set("")
         app._restore_autosave()
-        self.assertEqual(app.student_conclusion.get(), "Первая корректная копия")
+        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Первая корректная копия")
 
     def test_map_selection_explains_independent_observations(self):
         from types import SimpleNamespace
@@ -827,23 +827,23 @@ class GuiStateTests(unittest.TestCase):
 
     def test_cancelled_prediction_does_not_consume_attempt_and_clear_is_undoable(self):
         app = self.app
-        app.current_lesson["attempt_limit"] = 3
-        app.assignment_enabled.set(True)
-        app.predicted_direction.set("Уменьшится")
-        app.predicted_fastest.set("Без сравнения")
-        app.predicted_correction.set("Регулятор выключен")
-        app.predicted_steady.set("26.27")
+        app.assignment_panel.current_lesson["attempt_limit"] = 3
+        app.assignment_panel.assignment_enabled.set(True)
+        app.assignment_panel.predicted_direction.set("Уменьшится")
+        app.assignment_panel.predicted_fastest.set("Без сравнения")
+        app.assignment_panel.predicted_correction.set("Регулятор выключен")
+        app.assignment_panel.predicted_steady.set("26.27")
         original = app.last_calculation
         app._calculate()
         app._cancel_task()
-        self.assertEqual(app.assignment_attempts, 0)
+        self.assertEqual(app.assignment_panel.assignment_attempts, 0)
         self.assertIs(app.last_calculation, original)
         app._reset()
         self.assertIsNone(app.last_calculation)
         app.comparison_page.counter = 7
         app._undo_clear_experiment()
         self.assertIs(app.last_calculation, original)
-        self.assertEqual(app.assignment_attempts, 0)
+        self.assertEqual(app.assignment_panel.assignment_attempts, 0)
         self.assertEqual(app.comparison_page.counter, 7)
 
     def test_defaults_restore_disabled_controller_and_preserve_variant_title(self):
@@ -1001,14 +1001,14 @@ class GuiStateTests(unittest.TestCase):
 
     def test_learning_route_keeps_free_navigation_and_visits_all_steps(self):
         app = self.app
-        app.learning_mode.set(False)
+        app.assignment_panel.learning_mode.set(False)
         for page in ("scenarios", "disturbances", "controller", "results", "comparison", "export"):
-            app._advance_learning_step()
+            app.assignment_panel.advance_step()
             self.assertEqual(app.current_page, page)
-            self.assertIn(f"{app.learning_step}/6", app.route_stage.get())
+            self.assertIn(f"{app.assignment_panel.learning_step}/6", app.route_stage.get())
         app._show_page("sensitivity")
         self.assertEqual(app.current_page, "sensitivity")
-        self.assertEqual(app.learning_step, 6)
+        self.assertEqual(app.assignment_panel.learning_step, 6)
         self.assertEqual(list(app.nav_buttons)[:3], ["scenarios", "disturbances", "dynamics"])
 
     def tearDown(self):
