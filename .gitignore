@@ -1,6 +1,5 @@
 __pycache__/
 *.py[cod]
-AGENTS.md
 CLAUDE.md
 GEMINI.md
 scenarios.json

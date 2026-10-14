@@ -149,38 +149,35 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 
 ## 10. Project context
 
-**Fill this in per project. Keep it specific. Delete sections that don't apply.**
-
 ### Stack
 - Language and version: Python 3.14.7
-- Framework(s): tkinter/ttk; NumPy; Matplotlib with the Tk backend; SciPy
-- Package manager: `TODO`
-- Runtime / deployment target: Desktop GUI using PySimpleGUI/Tk
+- Framework(s): tkinter/ttk; NumPy; Matplotlib with the TkAgg backend
+- Package manager: pip with pinned `requirements.txt` (runtime) and `requirements-dev.txt` (build and CI)
+- Runtime / deployment target: desktop Tkinter application; Windows EXE built with PyInstaller
 
 ### Commands
-- Install: `TODO`
-- Build: `TODO`
-- Test (all): `python -m unittest discover -s tests -v`
-- Test (single file): `python tests/test_calculations.py`
-- Lint: `TODO`
-- Typecheck: `TODO`
+- Install: `python -m pip install -r requirements-dev.txt`
+- Build (Windows): `./build_windows.ps1` builds and verifies `dist\DynamicsControlLab.exe`
+- Test (all): `python -m unittest discover -s tests -v`; on Linux without a display prefix `xvfb-run -a`
+- Test (single file): `python -m unittest tests.test_calculations -v`
+- Source smoke and performance checks: `python main.py --smoke-test build/source-check.json`, `python main.py --performance-check build/source-performance.json`
 - Run locally: `python main.py`
+- Lint and typecheck: not configured
 
 Prefer single-file or single-test runs during iteration. Full suites are for the final verification pass.
 
 ### Layout
-- Source lives in: `main.py` (entry point), `app/` (application logic), `ui/` (Tkinter widgets)
+- Source lives in: `main.py` (entry point and main window), `app/` (models, calculations, storage, export), `ui/` (Tkinter pages and widgets)
 - Tests live in: `tests/`
-- Do not modify: `TODO` (generated code, vendored deps, legacy areas)
+- Documentation: `docs.md` (user guide), `documents.md` (documentation rules), `ROADMAP.md` (current agreed priorities), `docs/history/` (past roadmaps and release reports)
+- Do not modify: `docs/history/` (historical records), `output/pdf/docs.pdf` outside a version release, `data/builtin_scenarios.json` unless the task changes built-in scenarios
 
 ### Conventions specific to this repo
-- Naming: `TODO`
 - Import style: use package imports from `app` and `ui`; internal `app` imports are relative
-- Error handling pattern: `TODO`
-- Testing pattern and framework: standard-library `unittest`
-
-### Forbidden
-- `TODO`: things that look reasonable but will break this project.
+- Error handling pattern: invalid user input raises `ValueError` with a Russian message shown in the interface
+- Testing pattern and framework: standard-library `unittest`; GUI tests drive real Tk widgets
+- Branches: develop and push on `trunk` (CI runs there); `stable` is the default branch; `legacy` keeps the old PySimpleGUI interface and is not developed
+- Releases: tag `vX.Y.Z` on `trunk`, attach the verified EXE
 
 ---
 
@@ -190,22 +187,8 @@ Prefer single-file or single-test runs during iteration. Full suites are for the
 
 When the user corrects your approach, append a one-line rule here before ending the session. Write it concretely ("Always use X for Y"), never abstractly ("be careful with Y"). If an existing line already covers the correction, tighten it instead of adding a new one. Remove lines when the underlying issue goes away (model upgrades, refactors, process changes).
 
-- При упоминании «приоритетов» сверяться с последней согласованной дорожной картой, а не с прежними списками задач.
+- При упоминании «приоритетов» сверяться с `ROADMAP.md`, а не с прежними списками задач и отчётами в `docs/history/`.
 - В режиме графиков «Оба» проверять видимость обеих панелей после перерисовки, а не только значение переключателя.
 - Если пользователь после предложения нового чата явно просит продолжить здесь, продолжать в текущем чате без повторного требования перезапуска.
 - При оптимизации измерять запуск, расчёты, отрисовку, импорт/экспорт, сохранение и задержки интерфейса; не ограничивать проверку прокруткой.
 - При жалобах на изменение размеров проверять перетаскивание внутренних разделителей: ширину панели параметров и высоту графиков, отдельно от размера главного окна и движения курсора.
-
----
-
-## 12. How this file was built
-
-This boilerplate synthesizes:
-- Sean Donahoe's IJFW ("It Just F\*cking Works") principles: one install, working code, no ceremony.
-- Andrej Karpathy's observations on LLM coding pitfalls (the four principles: think-first, simplicity, surgical changes, goal-driven execution).
-- Boris Cherny's public Claude Code workflow (reactive pruning, keep it ~100 lines, only rules that fix real mistakes).
-- Anthropic's official Claude Code best practices (explore-plan-code-commit, verification loops, context as the scarce resource).
-- Community anti-sycophancy patterns (explicit banned phrases, direct-not-diplomatic).
-- The AGENTS.md open standard (cross-tool portability via symlinks).
-
-Read once. Edit sections 10 and 11 for your project. Prune the rest over time. This file gets better the more you use it.
