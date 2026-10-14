@@ -195,6 +195,34 @@ class GuiStateTests(unittest.TestCase):
         app._show_page("identification")
         return page
 
+    def test_identification_uncertainty_survives_session_and_reports(self):
+        import functools
+        from app import identification
+        from app.exporting import write_experiment_report
+        app, page = self.app, self.app.identification_page
+        app._show_page("identification")
+        page.load_path(Path("data/identification_step.csv"))
+        self.assertEqual(str(page.uncertainty_button["state"]), "disabled")
+        page.calculate(); self.wait_for_task()
+        quick = functools.partial(identification.bootstrap_intervals, replicates=20)
+        with patch("ui.identification_page.bootstrap_intervals", quick):
+            page.estimate_uncertainty(); self.wait_for_task()
+        record = page.result["uncertainty"]
+        self.assertEqual(record["replicates"], 20)
+        self.assertIn("95% интервалы", page.summary.get())
+        report = Path(self.directory.name) / "uncertainty.html"
+        write_experiment_report(report, page.capture(), "html")
+        self.assertIn("95% интервалы", report.read_text(encoding="utf-8"))
+        session = Path(self.directory.name) / "uncertainty.json"
+        with patch("main.filedialog.asksaveasfilename", return_value=str(session)): app._save_comparison_session()
+        page.restore(None)
+        self.assertEqual(str(page.uncertainty_button["state"]), "disabled")
+        with patch("main.filedialog.askopenfilename", return_value=str(session)): app._open_comparison_session()
+        self.assertEqual(page.result["uncertainty"], record)
+        self.assertIn("95% интервалы", page.summary.get())
+        page.calculate(); self.wait_for_task()
+        self.assertNotIn("uncertainty", page.result)
+
     def test_absorber_error_workflow_roundtrip_exports_and_atomic_import(self):
         import json
         from app.identification import validate_experiment_state
@@ -466,6 +494,12 @@ class GuiStateTests(unittest.TestCase):
         self.assertIsNotNone(page.fit, page.summary.get())
         self.assertLess(page.fit["delay"],1.)
         self.assertAlmostEqual(page.fit["gain"],200.,delta=15.)
+        import functools
+        from app import identification
+        with patch("ui.tank_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+            page.estimate_uncertainty(); self.wait_for_task()
+        self.assertEqual(page.fit["uncertainty"]["replicates"], 20, page.summary.get())
+        self.assertIn("95% интервалы", page.summary.get())
         from app.tank import DEFAULTS, simulate
         separate=simulate(dict(DEFAULTS,step_time=10.,pump_step=.0005))
         import csv

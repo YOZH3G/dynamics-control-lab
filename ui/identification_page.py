@@ -7,7 +7,8 @@ import numpy as np
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from app.identification import experiment_columns, export_identification, identify_step, read_experiment, validate_experiment_state, quality_text
+from app.identification import (bootstrap_intervals, experiment_columns, export_identification, identify_step, quality_text,
+                                read_experiment, uncertainty_text, validate_experiment_state)
 from app.experiment_control import validate_step, compare_pi
 from app.model_contract import copy_data
 from .absorber_sensitivity import AbsorberSensitivity, VIEW as ABSORBER_VIEW
@@ -58,21 +59,23 @@ class IdentificationPage(ttk.Frame):
             ttk.Combobox(self, textvariable=self.units[index], values=("с", "мин") if index == 0 else ("как в файле", "%"),
                          state="readonly", width=12).grid(row=row + 1, column=1, sticky="ew")
         ttk.Button(self, text="Оценить K, T и L", command=self.calculate).grid(row=10, column=0, columnspan=2, sticky="ew", pady=10)
-        ttk.Combobox(self, textvariable=self.view, values=("Отклик", "Остаток", "Проверка", "Регулирование", ABSORBER_VIEW), state="readonly").grid(row=11, column=0, columnspan=2, sticky="ew")
-        ttk.Label(self, textvariable=self.summary, style="Body.TLabel", wraplength=320).grid(row=12, column=0, columnspan=2, sticky="ew", pady=10)
+        self.uncertainty_button = ttk.Button(self, text="Оценить неопределённость K, T, L", command=self.estimate_uncertainty, state="disabled")
+        self.uncertainty_button.grid(row=11, column=0, columnspan=2, sticky="ew", pady=(0, 10))
+        ttk.Combobox(self, textvariable=self.view, values=("Отклик", "Остаток", "Проверка", "Регулирование", ABSORBER_VIEW), state="readonly").grid(row=12, column=0, columnspan=2, sticky="ew")
+        ttk.Label(self, textvariable=self.summary, style="Body.TLabel", wraplength=320).grid(row=13, column=0, columnspan=2, sticky="ew", pady=10)
         self.apply_button = ttk.Button(self, text="Применить T и L", command=self.apply, state="disabled")
-        self.apply_button.grid(row=13, column=0, columnspan=2, sticky="ew")
+        self.apply_button.grid(row=14, column=0, columnspan=2, sticky="ew")
         self.export_buttons = []
-        for row, fmt in enumerate(("csv", "json"), 14):
+        for row, fmt in enumerate(("csv", "json"), 15):
             button = ttk.Button(self, text=f"Экспорт {fmt.upper()}", command=lambda fmt=fmt: self.export(fmt), state="disabled")
             button.grid(row=row, column=0, columnspan=2, sticky="ew", pady=3)
             self.export_buttons.append(button)
         ttk.Label(self, text="Маршрут: эксперимент → модель и остаток → T и L → автоподбор регулятора. K описывает эксперимент; баланс абсорбера сохраняет своё усиление. Начните с учебного примера, затем импортируйте собственный опыт.",
-                  style="Hint.TLabel", wraplength=320).grid(row=16, column=0, columnspan=2, sticky="ew", pady=12)
+                  style="Hint.TLabel", wraplength=320).grid(row=17, column=0, columnspan=2, sticky="ew", pady=12)
         for row, (key, label) in enumerate((("title", "Название эксперимента"), ("description", "Источник данных"),
                 ("input_role", "Назначение входа"), ("output_role", "Назначение выхода"), ("regime", "Рабочий режим"),
                 ("comment", "Комментарий"), ("prediction", "Прогноз направления и K"),
-                ("explanation", "Объяснение остатка"), ("conclusion", "Вывод по эксперименту")), 17):
+                ("explanation", "Объяснение остатка"), ("conclusion", "Вывод по эксперименту")), 18):
             ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=3)
             if key in ("input_role", "output_role"):
                 options = ("Не определён", "η, доля", "Состав", "Расход") if key == "input_role" else ("Не определён", "Xог, доля", "Xна, доля")
@@ -80,20 +83,20 @@ class IdentificationPage(ttk.Frame):
             else:
                 ttk.Entry(self, textvariable=self.metadata[key]).grid(row=row, column=1, sticky="ew")
         ttk.Label(self, text="Учебное задание: до оценки спрогнозируйте знак и величину K. После оценки объясните остаток и запишите вывод. Ответы сохраняются без автоматического выставления баллов.",
-                  style="Hint.TLabel", wraplength=320).grid(row=26, column=0, columnspan=2, sticky="ew", pady=8)
-        ttk.Checkbutton(self, text="Те же сигналы и единицы", variable=self.same_signals).grid(row=27, column=0, columnspan=2, sticky="w")
-        ttk.Button(self, text="Проверить на другом CSV", command=self.validate_file).grid(row=28, column=0, columnspan=2, sticky="ew", pady=5)
+                  style="Hint.TLabel", wraplength=320).grid(row=27, column=0, columnspan=2, sticky="ew", pady=8)
+        ttk.Checkbutton(self, text="Те же сигналы и единицы", variable=self.same_signals).grid(row=28, column=0, columnspan=2, sticky="w")
+        ttk.Button(self, text="Проверить на другом CSV", command=self.validate_file).grid(row=29, column=0, columnspan=2, sticky="ew", pady=5)
         for row, (key, label) in enumerate((("setpoint", "Задание, доля"), ("horizon", "Горизонт проверки, с"),
-                                           ("gain", "Исходное Kp"), ("integral_time", "Исходное Ti, с")), 29):
+                                           ("gain", "Исходное Kp"), ("integral_time", "Исходное Ti, с")), 30):
             ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=3)
             ttk.Entry(self, textvariable=self.pi_settings[key]).grid(row=row, column=1, sticky="ew")
-        ttk.Button(self, text="Сравнить PI-регуляторы", command=self.check_pi).grid(row=33, column=0, columnspan=2, sticky="ew", pady=6)
-        ttk.Button(self, text="Полный протокол HTML", command=lambda: self.export_protocol("html")).grid(row=34, column=0, columnspan=2, sticky="ew")
-        ttk.Button(self, text="Полный протокол PDF", command=lambda: self.export_protocol("pdf")).grid(row=35, column=0, columnspan=2, sticky="ew", pady=5)
-        ttk.Button(self, text="Сеанс и все результаты JSON", command=self.app._save_comparison_session).grid(row=36, column=0, columnspan=2, sticky="ew")
-        ttk.Button(self, text="Все результаты CSV", command=self.export_all_csv).grid(row=37, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Button(self, text="Сравнить PI-регуляторы", command=self.check_pi).grid(row=34, column=0, columnspan=2, sticky="ew", pady=6)
+        ttk.Button(self, text="Полный протокол HTML", command=lambda: self.export_protocol("html")).grid(row=35, column=0, columnspan=2, sticky="ew")
+        ttk.Button(self, text="Полный протокол PDF", command=lambda: self.export_protocol("pdf")).grid(row=36, column=0, columnspan=2, sticky="ew", pady=5)
+        ttk.Button(self, text="Сеанс и все результаты JSON", command=self.app._save_comparison_session).grid(row=37, column=0, columnspan=2, sticky="ew")
+        ttk.Button(self, text="Все результаты CSV", command=self.export_all_csv).grid(row=38, column=0, columnspan=2, sticky="ew", pady=5)
         self.absorber_sensitivity = AbsorberSensitivity(self)
-        self.absorber_sensitivity.grid(row=38, column=0, columnspan=2, sticky="ew", pady=12)
+        self.absorber_sensitivity.grid(row=39, column=0, columnspan=2, sticky="ew", pady=12)
         for variable in (*self.columns, *self.units, self.delimiter):
             variable.trace_add("write", self.changed)
         self.view.trace_add("write", self.view_changed)
@@ -119,7 +122,8 @@ class IdentificationPage(ttk.Frame):
                 + (" Выход вне диапазона 0…1." if r['metrics'].get('output_out_of_range') else "") for r in self.pi_result["runs"]))
         else:
             r = self.result
-            self.summary.set(f"K={r['gain']:.6g}; T={r['time_constant']:.6g} с; L={r['delay']:.6g} с. RMSE всей записи={r['rmse']:.5g}. Оценена подгонка к {r['source']}.\n" + quality_text(r))
+            self.summary.set(f"K={r['gain']:.6g}; T={r['time_constant']:.6g} с; L={r['delay']:.6g} с. RMSE всей записи={r['rmse']:.5g}. Оценена подгонка к {r['source']}.\n" + quality_text(r)
+                             + ("\n" + uncertainty_text(r["uncertainty"]) if r.get("uncertainty") else ""))
         self.draw()
 
     def changed(self, *_):
@@ -170,12 +174,31 @@ class IdentificationPage(ttk.Frame):
         self.result_current = True
         self.summary.set(f"K = {result['gain']:.6g}; T = {result['time_constant']:.6g} с; L = {result['delay']:.6g} с. "
                          f"RMSE всей записи = {result['rmse']:.5g}; ошибка {result['normalized_rmse'] * 100:.3g}% амплитуды. "
-                         f"{result['source']}. Время ступени определено внутри интервала {result['step_interval'][0]:g}–{result['step_interval'][1]:g} с. Оценена только подгонка к исходному эксперименту.\n" + quality_text(result))
+                         f"{result['source']}. Время ступени определено внутри интервала {result['step_interval'][0]:g}–{result['step_interval'][1]:g} с. Оценена только подгонка к исходному эксперименту.\n" + quality_text(result)
+                         + ("\n" + uncertainty_text(result["uncertainty"]) if result.get("uncertainty") else ""))
         self.apply_button.configure(state="normal")
+        self.uncertainty_button.configure(state="normal")
         for button in self.export_buttons:
             button.configure(state="normal")
         self.app._set_status("Идентификация выполнена")
         self.draw()
+
+    def estimate_uncertainty(self):
+        if self.result is None or not self.result_current:
+            self.summary.set("Сначала выполните актуальную идентификацию.")
+            return
+        result, revision = self.result, self.result_revision
+
+        def accept(record):
+            if self.result is not result or self.result_revision != revision:
+                return
+            result["uncertainty"] = record
+            self.view.set("Отклик")
+            self.view_changed()
+            self.app._set_status("Интервалы K, T и L рассчитаны")
+
+        self.app._start_task("Неопределённость K, T, L", lambda cancel, progress: bootstrap_intervals(
+            result, cancel=cancel, progress=progress), accept, "identification")
 
     def origin(self):
         return dict(experiment_id=self.experiment_id, data_revision=self.generation,
@@ -327,7 +350,7 @@ class IdentificationPage(ttk.Frame):
         self.validation = self.pi_result = self.applied_origin = None
         self.headers, self.rows, self.source = [], [], ""
         self.generation += 1
-        for button in (self.apply_button, *self.export_buttons):
+        for button in (self.apply_button, self.uncertainty_button, *self.export_buttons):
             button.configure(state="disabled")
         if state is None:
             from app.absorber_sensitivity import FIELD_DEFAULTS

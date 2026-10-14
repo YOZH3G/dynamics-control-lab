@@ -6,7 +6,8 @@ from threading import Event
 import numpy as np
 
 from app.background_tasks import CalculationCancelled
-from app.identification import experiment_columns, export_identification, identify_step, read_experiment, validate_step_quality
+from app.identification import (bootstrap_intervals, experiment_columns, export_identification, identify_step, read_experiment,
+                                uncertainty_text, validate_step_quality, validate_uncertainty)
 
 
 def experiment(constant=8., delay=2., gain=.4, irregular=False):
@@ -67,6 +68,38 @@ class IdentificationTests(unittest.TestCase):
         result = identify_step(t, u, y + np.random.default_rng(42).normal(0, .001, t.size))
         self.assertAlmostEqual(result["time_constant"], 8, delta=.1)
         self.assertAlmostEqual(result["delay"], 2, delta=.1)
+
+    def test_bootstrap_intervals_reproducible_contain_reference_and_validate(self):
+        import copy
+        t, u, y = experiment()
+        noisy = y + np.random.default_rng(7).normal(0, .004, t.size)
+        fit = identify_step(t, u, noisy)
+        record = bootstrap_intervals(fit, replicates=40, seed=3)
+        self.assertEqual(record, bootstrap_intervals(fit, replicates=40, seed=3))
+        self.assertEqual(record["succeeded"] + record["failed"], 40)
+        for key, reference in (("gain", .4), ("time_constant", 8.), ("delay", 2.)):
+            low, high = record["intervals"][key]
+            self.assertLess(low, high)
+            self.assertLessEqual(low, reference)
+            self.assertGreaterEqual(high, reference)
+        self.assertIs(validate_uncertainty(record, t.size), record)
+        self.assertIn("95% интервалы", uncertainty_text(record))
+        for change in (lambda r: r["intervals"]["gain"].reverse(), lambda r: r.update(reliable=not r["reliable"]),
+                       lambda r: r.update(succeeded=r["succeeded"] - 1), lambda r: r["intervals"].pop("delay"),
+                       lambda r: r["intervals"]["time_constant"].__setitem__(0, 0.), lambda r: r.update(block_length=t.size + 1),
+                       lambda r: r.update(level=.9), lambda r: r.update(replicates=True)):
+            broken = copy.deepcopy(record)
+            change(broken)
+            with self.assertRaises(ValueError):
+                validate_uncertainty(broken, t.size)
+
+    def test_bootstrap_intervals_can_be_cancelled(self):
+        t, u, y = experiment()
+        fit = identify_step(t, u, y + np.random.default_rng(1).normal(0, .004, t.size))
+        cancel = Event()
+        cancel.set()
+        with self.assertRaises(CalculationCancelled):
+            bootstrap_intervals(fit, replicates=20, cancel=cancel)
 
     def test_fast_unresolved_transition_and_baseline_drift_are_rejected(self):
         with self.assertRaisesRegex(ValueError, "слишком редкие"):

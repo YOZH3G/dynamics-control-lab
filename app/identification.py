@@ -3,6 +3,7 @@
 import csv
 import copy
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -186,6 +187,8 @@ def validate_experiment_state(state):
         result["columns"] = list(result["columns"])
         result["units"] = list(result["units"])
         validate_experiment_origin(result.get("origin"))
+        if "uncertainty" in result:
+            validate_uncertainty(result["uncertainty"], len(result["time"]))
         if not np.allclose(arrays[2] - arrays[3], arrays[4], rtol=1e-12, atol=1e-12):
             raise ValueError("Эксперимент: остаток не соответствует данным.")
         validate_step_quality(result)
@@ -444,6 +447,82 @@ def identify_step(time, input_signal, output_signal, *, cancel=None, progress=No
                 baseline=offset, step_time=step_time, step_interval=[float(time[index - 1]), step_time],
                 amplitude=amplitude, rmse=rmse, normalized_rmse=rmse / scale,
                 quality=quality, method="one-step FOPDT; time-weighted least squares")
+
+
+UNCERTAINTY_REPLICATES = 200
+UNCERTAINTY_LEVEL = .95
+UNCERTAINTY_METHOD = "moving block bootstrap of residuals"
+UNCERTAINTY_KEYS = ("gain", "time_constant", "delay")
+
+
+def bootstrap_intervals(result, *, replicates=UNCERTAINTY_REPLICATES, seed=1, cancel=None, progress=None):
+    """Percentile intervals of K, T and L from refits to model + resampled residual blocks.
+
+    Blocks of about n**(1/3) consecutive residuals keep short-range correlation.
+    The intervals assume the first-order model with delay is adequate and the
+    residual noise is stationary; they say nothing about other operating points.
+    """
+    time, input_signal, model, residual = (np.asarray(result[key], dtype=float)
+                                           for key in ("time", "input", "model", "residual"))
+    size = time.size
+    block = max(2, int(np.ceil(size ** (1 / 3))))
+    centered = residual - residual.mean()
+    generator = np.random.default_rng(seed)
+    estimates, failed = [], 0
+    for index in range(replicates):
+        check_cancelled(cancel)
+        starts = generator.integers(0, size - block + 1, size=-(-size // block))
+        noise = np.concatenate([centered[start:start + block] for start in starts])[:size]
+        try:
+            fit = identify_step(time, input_signal, model + noise, cancel=cancel)
+        except ValueError:
+            failed += 1
+        else:
+            estimates.append([fit[key] for key in UNCERTAINTY_KEYS])
+        if progress:
+            progress((index + 1) / replicates)
+    succeeded = replicates - failed
+    if succeeded < 2:
+        raise ValueError("Бутстрэп: повторная подгонка почти всегда отклоняется; интервалы не рассчитаны.")
+    tail = (1 - UNCERTAINTY_LEVEL) / 2 * 100
+    bounds = np.percentile(np.asarray(estimates), [tail, 100 - tail], axis=0)
+    return dict(version=1, method=UNCERTAINTY_METHOD, replicates=replicates, seed=seed, block_length=block,
+                level=UNCERTAINTY_LEVEL, succeeded=succeeded, failed=failed, reliable=succeeded >= .9 * replicates,
+                intervals={key: [float(bounds[0, i]), float(bounds[1, i])] for i, key in enumerate(UNCERTAINTY_KEYS)})
+
+
+def validate_uncertainty(record, size):
+    """Check a stored bootstrap record for a fit with ``size`` samples."""
+    if not isinstance(record, dict) or record.get("version") != 1 or record.get("method") != UNCERTAINTY_METHOD:
+        raise ValueError("Неопределённость: неизвестный формат.")
+    integers = [record.get(key) for key in ("replicates", "seed", "block_length", "succeeded", "failed")]
+    if any(type(value) is not int for value in integers):
+        raise ValueError("Неопределённость: счётчики должны быть целыми числами.")
+    replicates, seed, block, succeeded, failed = integers
+    if (not 20 <= replicates <= 2000 or seed < 0 or not 2 <= block <= size or succeeded < 2 or failed < 0
+            or succeeded + failed != replicates or record.get("level") != UNCERTAINTY_LEVEL
+            or record.get("reliable") is not (succeeded >= .9 * replicates)):
+        raise ValueError("Неопределённость: несогласованные параметры бутстрэпа.")
+    intervals = record.get("intervals")
+    if not isinstance(intervals, dict) or set(intervals) != set(UNCERTAINTY_KEYS):
+        raise ValueError("Неопределённость: нужны интервалы K, T и L.")
+    for key, bounds in intervals.items():
+        if (not isinstance(bounds, list) or len(bounds) != 2 or any(type(v) not in (int, float) for v in bounds)
+                or not all(math.isfinite(v) for v in bounds) or bounds[0] > bounds[1]
+                or (key == "time_constant" and bounds[0] <= 0) or (key == "delay" and bounds[0] < 0)):
+            raise ValueError("Неопределённость: неверная граница интервала.")
+    return record
+
+
+def uncertainty_text(record):
+    i = record["intervals"]
+    text = (f"{record['level'] * 100:g}% интервалы (блочный бутстрэп остатков, {record['replicates']} повторов, "
+            f"блок {record['block_length']} точек): K {i['gain'][0]:.4g}…{i['gain'][1]:.4g}; "
+            f"T {i['time_constant'][0]:.4g}…{i['time_constant'][1]:.4g} с; L {i['delay'][0]:.4g}…{i['delay'][1]:.4g} с. "
+            "Интервалы предполагают, что модель первого порядка с запаздыванием верна, а шум стационарен.")
+    if not record["reliable"]:
+        text += f" Повторная подгонка отклонена в {record['failed']} из {record['replicates']} повторов: интервалы ненадёжны."
+    return text
 
 
 def export_identification(path, result, format_name):

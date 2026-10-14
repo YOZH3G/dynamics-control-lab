@@ -11,7 +11,7 @@ import numpy as np
 from app.tank import DEFAULTS, MODEL_ID, MODEL_VERSION, equilibrium, compare_regimes, validate_inputs
 from app.physical_models import MODELS, run_model
 from app.tank_state import FIELD_DEFAULTS, VIEWS, validate_tank_state
-from app.identification import identify_step, read_experiment, quality_text
+from app.identification import bootstrap_intervals, identify_step, read_experiment, quality_text, uncertainty_text
 from app.experiment_control import validate_step
 from app.tank_exporting import STATUS_TEXT, EVENT_TEXT
 from app.model_contract import copy_data
@@ -67,6 +67,8 @@ class TankPage(ttk.Frame):
             options=("с","мин") if i==0 else ("м³/с","л/с") if i==1 else ("м","см")
             ttk.Combobox(self,textvariable=self.units[i],values=options,state="readonly").grid(row=row,column=1,sticky="ew"); row+=1
         ttk.Button(self,text="Оценить локальные K, T, L",command=self.identify).grid(row=row,column=0,columnspan=2,sticky="ew",pady=4); row+=1
+        self.uncertainty_button=ttk.Button(self,text="Оценить неопределённость K, T, L",command=self.estimate_uncertainty)
+        self.uncertainty_button.grid(row=row,column=0,columnspan=2,sticky="ew",pady=(0,4)); row+=1
         ttk.Checkbutton(self,text="Те же сигналы и постоянный отбор",variable=self.same_signals).grid(row=row,column=0,columnspan=2,sticky="w"); row+=1
         ttk.Button(self,text="Проверить на другом CSV",command=self.validate_file).grid(row=row,column=0,columnspan=2,sticky="ew",pady=4); row+=1
         for key,label in (("setpoint","Задание уровня, м"),("gain","Исходное Kp, м²/с"),("integral_time","Исходное Ti, с"),
@@ -206,9 +208,23 @@ class TankPage(ttk.Frame):
             return dict({k:v.tolist() if isinstance(v,np.ndarray) else v for k,v in result.items()},source=origin["source"],origin=origin,revision=revision)
         def accept(result):
             self.fit=result; self.view.set("Идентификация")
-            self.summary.set(f"Локальная модель: K={result['gain']:.6g} с/м²; T={result['time_constant']:.6g} с; L={result['delay']:.6g} с; RMSE всей записи={result['rmse']:.4g} м. Подгонка не заменяет нелинейный бак.\n" + quality_text(result))
+            self.summary.set(self.fit_text(result))
             self.draw(); self.app._set_status("Идентификация бака выполнена")
         self.perform("Идентификация бака",calculate,accept)
+
+    def fit_text(self,result):
+        return (f"Локальная модель: K={result['gain']:.6g} с/м²; T={result['time_constant']:.6g} с; L={result['delay']:.6g} с; RMSE всей записи={result['rmse']:.4g} м. Подгонка не заменяет нелинейный бак.\n" + quality_text(result) +
+                ("\n" + uncertainty_text(result["uncertainty"]) if result.get("uncertainty") else ""))
+
+    def estimate_uncertainty(self):
+        if self.fit is None or self.fit["revision"] != self.revision:
+            self.fail("Сначала оцените актуальную локальную модель."); return
+        fit=self.fit
+        def accept(record):
+            if self.fit is not fit or fit["revision"] != self.revision: return
+            fit["uncertainty"]=record; self.summary.set(self.fit_text(fit))
+            self.app._set_status("Интервалы K, T и L бака рассчитаны")
+        self.perform("Неопределённость K, T, L бака",lambda cancel,progress: bootstrap_intervals(fit,cancel=cancel,progress=progress),accept)
 
     def validate_file(self):
         if self.fit is None or self.fit["revision"] != self.revision or not self.same_signals.get():

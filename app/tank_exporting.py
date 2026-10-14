@@ -8,7 +8,7 @@ from matplotlib.figure import Figure
 
 from .exporting import _text_pages, _write_pdf, _figures_markup
 from .tank_state import validate_tank_state
-from .identification import quality_text
+from .identification import quality_text, uncertainty_text
 
 
 STATUS_TEXT = dict(physical_stop="физическая остановка",unreachable="задание недостижимо",
@@ -35,7 +35,8 @@ def write_tank_report(path,state,format_name):
             sections.append((label,f"Источник: {r['source']}; версия данных {r['revision']}.\n"
                 f"K={r['gain']:.8g} с/м²; T={r['time_constant']:.8g} с; L={r['delay']:.8g} с; RMSE всей записи={r['rmse']:.8g} м.\n"
                 f"Исходные единицы: {origin['units']}; столбцы: {origin['columns']}.\n"
-                + ("Локальная подгонка; не заменяет нелинейную физическую модель." if key=="fit" else "K/T/L фиксированы до загрузки независимой записи.") + "\n" + quality_text(r)))
+                + ("Локальная подгонка; не заменяет нелинейную физическую модель." if key=="fit" else "K/T/L фиксированы до загрузки независимой записи.") + "\n" + quality_text(r)
+                + ("\n" + uncertainty_text(r["uncertainty"]) if key == "fit" and r.get("uncertainty") else "")))
             series.append((label,r,"output","input"))
     if state["pi"] is not None:
         sections.append(("Сравнение PI","Kp/Ti фиксированы для каждого регулятора во всех режимах; равновесные базовые подачи различны.\n"

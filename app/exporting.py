@@ -16,7 +16,7 @@ from .plotting import adaptive_legend
 
 def write_experiment_report(path, state, format_name):
     """Export fit, independent validation and controller snapshots together."""
-    from .identification import validate_experiment_state, quality_text
+    from .identification import validate_experiment_state, quality_text, uncertainty_text
     state = validate_experiment_state(state)
     fit = state["result"]
     if fit is None:
@@ -30,7 +30,8 @@ def write_experiment_report(path, state, format_name):
                     "Результат актуален." if state["result_current"] else "Результат относится к прежнему выбору данных."]),
                 ("Подгонка", [f"K={fit['gain']:.8g}; T={fit['time_constant']:.8g} с; L={fit['delay']:.8g} с",
                     f"RMSE всей записи={fit['rmse']:.8g}; относительная ошибка={fit['normalized_rmse']*100:.6g}%",
-                    "Подгонка к одной ступени не подтверждает модель за пределами исходного режима.", quality_text(fit)])]
+                    "Подгонка к одной ступени не подтверждает модель за пределами исходного режима.", quality_text(fit)]
+                    + ([uncertainty_text(fit["uncertainty"])] if fit.get("uncertainty") else []))]
     figures = []
     figure = Figure(figsize=(9, 8))
     axes = figure.subplots(3, 1)
