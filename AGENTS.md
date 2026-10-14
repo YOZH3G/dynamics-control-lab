@@ -162,6 +162,7 @@ Boris Cherny (creator of Claude Code) keeps his team's file around 100 lines. Un
 - Test (single file): `python -m unittest discover -s tests -p test_calculations.py -v` (tests import sibling test modules, so keep `-s tests`)
 - Source smoke and performance checks: `python main.py --smoke-test build/source-check.json`, `python main.py --performance-check build/source-performance.json`
 - Run locally: `python main.py`
+- User guide PDF (version releases only): `python tools/build_docs_pdf.py`
 - Lint and typecheck: not configured
 
 Prefer single-file or single-test runs during iteration. Full suites are for the final verification pass.
