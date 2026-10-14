@@ -938,6 +938,17 @@ class GuiStateTests(unittest.TestCase):
         self.assertGreater(app.comparison_page.table.winfo_width(), 545)
         self.assertGreater(app.chart_panes.winfo_height(), 250)
 
+    def test_renaming_run_redraws_comparison_and_reports_status(self):
+        app = self.app
+        app.comparison_page.add_current()
+        run = app.comparison_page.runs[0]
+        app.comparison_page.table.selection_set(run["id"])
+        with patch.object(app.comparison_page, "ask_name", return_value="Новый опыт: проверка"):
+            app.comparison_page.rename()
+        self.assertEqual(run["name"], "Новый опыт: проверка")
+        self.assertEqual(app.disturbance_axis.lines[0].get_label(), "Новый опыт")
+        self.assertEqual(app.status_text.get(), "Название опыта изменено")
+
     def test_units_preserve_precision_snapshot_and_physical_result(self):
         import numpy as np
         app = self.app

@@ -293,6 +293,8 @@ class ComparisonPanel:
             return
         run["name"] = name
         self.refresh_table((run["id"],))
+        self.draw()
+        self.app._set_status("Название опыта изменено")
 
     def ask_name(self, initial_name):
         dialog = tk.Toplevel(self.app.root)
@@ -332,8 +334,6 @@ class ComparisonPanel:
         entry.select_range(0, "end")
         self.app.root.wait_window(dialog)
         return result["value"]
-        self.draw()
-        self.app._set_status("Название опыта изменено")
 
     def restore_selected(self):
         selected = self.selected_runs()
