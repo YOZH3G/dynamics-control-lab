@@ -39,9 +39,10 @@ class HeaterPage(ObjectPage):
         self.hint("Графики, JSON, CSV и отчёты HTML/PDF доступны в разделе «Результат модели».")
         for text, command in (("Сохранить сеанс JSON", app._save_comparison_session), ("Открыть сеанс JSON", app._open_comparison_session)):
             self.add_button(text, command)
-        self.trace((*PARAMETERS, "noise", "seed"), self.changed)
-        # Controller settings do not change the experiment: an identified model stays current.
-        self.trace(("setpoint", "gain", "integral_time"), self.settings_changed)
+        self.trace(PARAMETERS, self.changed)
+        # Noise, seed and controller settings do not change the free response; the fit and the PI run
+        # are compared with them when drawn.
+        self.trace(("noise", "seed", "setpoint", "gain", "integral_time"), self.settings_changed)
         self.view.trace_add("write", lambda *_: self.draw())
 
     def latest_result(self):
@@ -131,7 +132,7 @@ class HeaterPage(ObjectPage):
             app.disturbance_axis.plot(record["time"], record["input"], label="Мощность")
             app.response_axis.plot(record["time"], record["output"], label="Измеренная с шумом")
             app.response_axis.plot(record["time"], record["model"], label="Модель K, T, L")
-            stale = record["revision"] != self.revision
+            stale = not self.fit_current()
             self.summary.set(("Снимок прежних настроек; повторите расчёт. " if stale else "") + self.fit_text(record))
         elif record is not None:
             app.disturbance_axis.plot(record["time"], record["power"], label="Мощность")

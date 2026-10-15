@@ -116,18 +116,31 @@ class ObjectPage(ttk.Frame):
     def signature(self):
         return (self.revision, tuple(v.get() for v in self.fields.values()))
 
+    def fit_current(self):
+        """The fit belongs to the current experiment and, for the response loop, to the current noise and seed."""
+        fit = self.fit
+        if not self.current(fit):
+            return False
+        if "noise" not in fit:
+            return True
+        try:
+            return (float(self.fields["noise"].get().replace(",", ".")) == fit["noise"]
+                    and int(self.fields["seed"].get()) == fit["seed"])
+        except ValueError:
+            return False
+
     # Identification shared by object pages.
 
     def fit_text(self, fit):
         raise NotImplementedError
 
     def estimate_uncertainty(self):
-        if not self.current(self.fit):
+        if not self.fit_current():
             self.fail(self.fit_missing); return
         fit = self.fit
 
         def accept(record):
-            if self.fit is not fit or not self.current(fit):
+            if self.fit is not fit or not self.fit_current():
                 return
             fit["uncertainty"] = record
             self.draw()
@@ -138,7 +151,8 @@ class ObjectPage(ttk.Frame):
 
     # Response loop: free response → K, T, L with sensor noise → PI settings. A page enables it by
     # setting identify_response(run, noise, seed, *, cancel, progress) and pi_settings(fit), and
-    # provides the fields noise, seed, gain and integral_time and the attribute result.
+    # provides the fields noise, seed, gain and integral_time and the attribute result. Noise and seed
+    # only affect the fit: changing them should call settings_changed, not changed.
     identify_response = None
     pi_settings = None
 
@@ -160,7 +174,7 @@ class ObjectPage(ttk.Frame):
             identify(run, noise, seed, cancel=cancel, progress=progress), revision=revision), accept)
 
     def tune(self):
-        if not self.current(self.fit):
+        if not self.fit_current():
             self.fail(self.fit_missing); return
         settings = self.pi_settings(self.fit)
         self.fields["gain"].set(format(settings["gain"], ".4g"))
