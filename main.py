@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 APP_NAME = "Лаборатория динамики и управления"
-APP_VERSION = "1.14.1"
+APP_VERSION = "1.15.0"
 
 from app.calculations import (
     DEFAULT_MODEL_VALUES,
@@ -23,7 +23,7 @@ from app.model_contract import copy_data
 from app.object_file import DESCRIBED, load_description
 from app.background_tasks import BackgroundTask, CalculationCancelled
 from app.scenario_store import ScenarioStore
-from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
+from app.session_store import MAX_FILE_OBJECTS, read_laboratory_session, restore_calculation, validate_input_state, write_session
 from app.settings_store import SettingsStore
 from app.plotting import adaptive_legend
 from app.simulation import LEAN_GAS, RICH_ABSORBENT
@@ -652,6 +652,9 @@ class DynamicsControlApp(ttk.Frame):
         if current is not None and current.data == description.data and description.id in {m.id for m in MODELS.all()}:
             return MODELS.get(description.id)
         model = description.model()
+        opened = {m.id for m in MODELS.all() if "file" in m.capabilities}
+        if model.id not in opened and len(opened) >= MAX_FILE_OBJECTS:
+            raise ValueError(f"Можно открыть не больше {MAX_FILE_OBJECTS} объектов из файлов.")
         if model.entry_page in self.pages and model.entry_page not in self.object_pages:
             raise ValueError(f"Ключ «{model.id}» совпадает с разделом программы.")
         MODELS.add_file_model(model)

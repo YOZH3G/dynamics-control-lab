@@ -657,6 +657,10 @@ class GuiStateTests(unittest.TestCase):
                 app._open_object_file()
             self.assertIn(message, app.status_text.get())
             self.assertEqual(app.selected_model.get(), "Нагреватель 2")
+        with patch("main.MAX_FILE_OBJECTS", 1):
+            with self.assertRaisesRegex(ValueError, "не больше 1 объектов"):
+                app._add_file_object(dict(changed, id="second", name="Второй"))
+            self.assertEqual(app._add_file_object(changed).id, "file_heater")
         app.selected_model.set("Абсорбер"); app._select_model()
 
     def test_heater_page_runs_shares_results_and_survives_session(self):
