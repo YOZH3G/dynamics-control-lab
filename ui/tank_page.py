@@ -11,54 +11,39 @@ import numpy as np
 from app.tank import DEFAULTS, MODEL_ID, MODEL_VERSION, equilibrium, compare_regimes, validate_inputs
 from app.physical_models import MODELS, run_model
 from app.tank_state import FIELD_DEFAULTS, VIEWS, validate_tank_state
-from app.identification import bootstrap_intervals, identify_step, read_experiment, quality_text, uncertainty_text
+from app.identification import identify_step, read_experiment, quality_text, uncertainty_text
 from app.experiment_control import validate_step
 from app.tank_exporting import STATUS_TEXT, EVENT_TEXT
 from app.model_contract import copy_data
+from ui.object_page import ObjectPage
 from ui.tank_sensitivity import TankSensitivity, VIEW as SENSITIVITY_VIEW
 
 
-class TankPage(ttk.Frame):
+class TankPage(ObjectPage):
     chart_label = "Подача и отбор"
+    object_name = "бака"
 
     def __init__(self, parent, app):
-        super().__init__(parent, style="CardBody.TFrame", padding=12)
-        self.app = app
-        self.fields = {k: tk.StringVar(value=v) for k,v in FIELD_DEFAULTS.items()}
-        self.view = tk.StringVar(value=VIEWS[0])
-        self.summary = tk.StringVar(value="Выберите исходное состояние, затем снимите ступенчатый эксперимент.")
-        self.result = self.fit = self.validation = self.pi = None
-        self.revision = 0
-        self.restoring = False
+        super().__init__(parent, app, MODEL_ID, FIELD_DEFAULTS, VIEWS,
+                         "Выберите исходное состояние, затем снимите ступенчатый эксперимент.")
+        self.result = self.validation = self.pi = None
         self.headers, self.rows, self.source = [], [], ""
         self.columns = [tk.StringVar() for _ in range(3)]
         self.units = [tk.StringVar(value=v) for v in ("с","м³/с","м")]
         self.delimiter = tk.StringVar(value=";")
         self.same_signals = tk.BooleanVar(value=False)
-        self.columnconfigure(1,weight=1)
-        ttk.Label(self,text="Бак с регулированием уровня",style="CardTitle.TLabel").grid(row=0,column=0,columnspan=2,sticky="w")
-        ttk.Label(self,text="Баланс → отклик → эксперимент → модель → PI → режимы → отчёт",style="Hint.TLabel",wraplength=320).grid(row=1,column=0,columnspan=2,sticky="ew",pady=8)
-        labels = (("area","Площадь A, м²"),("coefficient","Коэффициент c, м^(5/2)/с"),("height","Высота Hmax, м"),
-                  ("pump_limit","Предел Qmax, м³/с"),("mode","Исходное состояние"),("initial_level","Исходный h0, м"),
-                  ("pump","Подача Q0, м³/с"),("withdrawal","Отбор d0, м³/с"),("step_time","Время ступени, с"),
-                  ("pump_step","Ступень подачи, м³/с"),("withdrawal_step","Ступень отбора, м³/с"),
-                  ("horizon","Горизонт, с"),("sample_time","Период расчёта, с"),("noise","Шум уровня σ, м"),("seed","Число для генератора"))
-        row = 2
-        for key,label in labels:
-            ttk.Label(self,text=label,style="Body.TLabel").grid(row=row,column=0,sticky="w",pady=2)
-            if key == "mode":
-                ttk.Combobox(self,textvariable=self.fields[key],values=("Равновесие","Заданный уровень"),state="readonly",width=15).grid(row=row,column=1,sticky="ew")
-            else:
-                entry=ttk.Entry(self,textvariable=self.fields[key],width=14)
-                entry.grid(row=row,column=1,sticky="ew")
-                if key == "initial_level": self.initial_entry=entry
-            row += 1
+        self.heading("Бак с регулированием уровня","Баланс → отклик → эксперимент → модель → PI → режимы → отчёт")
+        parameters=[p.key for p in self.model.parameters]
+        spec=(*parameters[:4],("mode","Исходное состояние",("Равновесие","Заданный уровень")),*parameters[4:],
+              ("noise","Шум уровня σ, м"),("seed","Число для генератора"))
+        self.initial_entry=self.add_fields(spec)["initial_level"]
         for text,command in (("Показать баланс",self.balance),("Свободный отклик",self.calculate),("Снять эксперимент",self.generate),
                              ("Учебный пример",self.example)):
-            ttk.Button(self,text=text,command=command).grid(row=row,column=0,columnspan=2,sticky="ew",pady=3); row+=1
-        ttk.Combobox(self,textvariable=self.view,values=VIEWS,state="readonly").grid(row=row,column=0,columnspan=2,sticky="ew"); row+=1
-        ttk.Label(self,textvariable=self.summary,style="Body.TLabel",wraplength=320).grid(row=row,column=0,columnspan=2,sticky="ew",pady=8); row+=1
-        ttk.Label(self,text="CSV: подтвердите подачу насоса и уровень. При идентификации отбор постоянный.",style="Hint.TLabel",wraplength=320).grid(row=row,column=0,columnspan=2,sticky="ew"); row+=1
+            self.add_button(text,command)
+        self.add_view_list(VIEWS)
+        self.add_summary()
+        self.hint("CSV: подтвердите подачу насоса и уровень. При идентификации отбор постоянный.",pady=0)
+        row=self.row
         ttk.Combobox(self,textvariable=self.delimiter,values=(";",",","табуляция"),state="readonly").grid(row=row,column=0,columnspan=2,sticky="ew"); row+=1
         ttk.Button(self,text="Импортировать CSV бака",command=self.import_csv).grid(row=row,column=0,columnspan=2,sticky="ew",pady=4); row+=1
         self.boxes=[]
@@ -68,27 +53,24 @@ class TankPage(ttk.Frame):
             box.grid(row=row,column=1,sticky="ew"); self.boxes.append(box); row+=1
             options=("с","мин") if i==0 else ("м³/с","л/с") if i==1 else ("м","см")
             ttk.Combobox(self,textvariable=self.units[i],values=options,state="readonly").grid(row=row,column=1,sticky="ew"); row+=1
-        ttk.Button(self,text="Оценить локальные K, T, L",command=self.identify).grid(row=row,column=0,columnspan=2,sticky="ew",pady=4); row+=1
-        self.uncertainty_button=ttk.Button(self,text="Оценить неопределённость K, T, L",command=self.estimate_uncertainty)
-        self.uncertainty_button.grid(row=row,column=0,columnspan=2,sticky="ew",pady=(0,4)); row+=1
-        ttk.Checkbutton(self,text="Те же сигналы и постоянный отбор",variable=self.same_signals).grid(row=row,column=0,columnspan=2,sticky="w"); row+=1
-        ttk.Button(self,text="Проверить на другом CSV",command=self.validate_file).grid(row=row,column=0,columnspan=2,sticky="ew",pady=4); row+=1
-        for key,label in (("setpoint","Задание уровня, м"),("gain","Исходное Kp, м²/с"),("integral_time","Исходное Ti, с"),
-                          ("title","Название опыта"),("prediction","Прогноз"),("conclusion","Вывод")):
-            ttk.Label(self,text=label,style="Body.TLabel").grid(row=row,column=0,sticky="w")
-            ttk.Entry(self,textvariable=self.fields[key]).grid(row=row,column=1,sticky="ew"); row+=1
-        ttk.Button(self,text="Сравнить PI и рабочие уровни",command=self.check_pi).grid(row=row,column=0,columnspan=2,sticky="ew",pady=3); row+=1
+        self.row=row
+        self.add_button("Оценить локальные K, T, L",self.identify,pady=4)
+        self.uncertainty_button=self.add_button("Оценить неопределённость K, T, L",self.estimate_uncertainty,pady=(0,4))
+        ttk.Checkbutton(self,text="Те же сигналы и постоянный отбор",variable=self.same_signals).grid(row=self.row,column=0,columnspan=2,sticky="w"); self.row+=1
+        self.add_button("Проверить на другом CSV",self.validate_file,pady=4)
+        self.add_fields((("setpoint","Задание уровня, м"),("gain","Исходное Kp, м²/с"),("integral_time","Исходное Ti, с"),
+                         ("title","Название опыта"),("prediction","Прогноз"),("conclusion","Вывод")),width=None,pady=0)
+        self.add_button("Сравнить PI и рабочие уровни",self.check_pi)
         self.sensitivity = TankSensitivity(self)
-        self.sensitivity.grid(row=row,column=0,columnspan=2,sticky="ew",pady=8); row+=1
+        self.sensitivity.grid(row=self.row,column=0,columnspan=2,sticky="ew",pady=8); self.row+=1
         for text,command in (("Сохранить эксперимент CSV",self.export_experiment),
                              ("Сохранить результаты CSV",lambda:self.export("csv")),("Протокол HTML",lambda:self.export("html")),
                              ("Протокол PDF",lambda:self.export("pdf")),("Сохранить сеанс JSON",app._save_comparison_session),
                              ("Открыть сеанс JSON",app._open_comparison_session)):
-            ttk.Button(self,text=text,command=command).grid(row=row,column=0,columnspan=2,sticky="ew",pady=3); row+=1
+            self.add_button(text,command)
         for variable in (*(self.fields[k] for k in (*DEFAULTS,"mode")),*self.columns,*self.units,self.delimiter):
             variable.trace_add("write",self.changed)
-        for k,var in self.fields.items():
-            if k not in (*DEFAULTS,"mode"): var.trace_add("write",self.settings_changed)
+        self.trace([k for k in self.fields if k not in (*DEFAULTS,"mode")],self.settings_changed)
         self.view.trace_add("write",lambda *_: self.draw())
         self.initial_entry.configure(state="disabled")
 
@@ -101,15 +83,8 @@ class TankPage(ttk.Frame):
 
     def changed(self,*_):
         if self.restoring: return
-        self.revision+=1
-        if getattr(self.app,"_task",None) is not None and self.app._task_kind == "tank": self.app._cancel_task()
         self.initial_entry.configure(state="disabled" if self.fields["mode"].get()=="Равновесие" else "normal")
-        self.draw()
-
-    def settings_changed(self,*_):
-        if not self.restoring and getattr(self.app,"_task",None) is not None and self.app._task_kind == "tank":
-            self.app._cancel_task()
-        self.draw()
+        super().changed()
 
     def inputs(self):
         balanced=self.fields["mode"].get()=="Равновесие"
@@ -119,12 +94,6 @@ class TankPage(ttk.Frame):
         except ValueError as error: raise ValueError("Бак: заполните числовые параметры.") from error
         if balanced: p["initial_level"]=equilibrium(p)
         return validate_inputs(p)
-
-    def perform(self,name,calculate,accept):
-        self.app._start_task(name,calculate,accept,"tank")
-
-    def fail(self,error):
-        self.summary.set(str(error)); self.app._set_status(str(error),error=True)
 
     def balance(self):
         try:
@@ -221,16 +190,6 @@ class TankPage(ttk.Frame):
     def fit_text(self,result):
         return (f"Локальная модель: K={result['gain']:.6g} с/м²; T={result['time_constant']:.6g} с; L={result['delay']:.6g} с; RMSE всей записи={result['rmse']:.4g} м. Подгонка не заменяет нелинейный бак.\n" + quality_text(result) +
                 ("\n" + uncertainty_text(result["uncertainty"]) if result.get("uncertainty") else ""))
-
-    def estimate_uncertainty(self):
-        if self.fit is None or self.fit["revision"] != self.revision:
-            self.fail("Сначала оцените актуальную локальную модель."); return
-        fit=self.fit
-        def accept(record):
-            if self.fit is not fit or fit["revision"] != self.revision: return
-            fit["uncertainty"]=record; self.summary.set(self.fit_text(fit))
-            self.app._set_status("Интервалы K, T и L бака рассчитаны")
-        self.perform("Неопределённость K, T, L бака",lambda cancel,progress: bootstrap_intervals(fit,cancel=cancel,progress=progress),accept)
 
     def validate_file(self):
         if self.fit is None or self.fit["revision"] != self.revision or not self.same_signals.get():

@@ -145,25 +145,25 @@ ABSORBER_PARAMETERS = tuple(Parameter(key, label, unit, DEFAULT_MODEL_VALUES[key
         ("gg", "Расход газа", "кг/ч", 0., None), ("xg", "Концентрация газа", "доля", 0., 1.),
         ("ga", "Расход абсорбента", "кг/ч", 0., None), ("xa", "Концентрация абсорбента", "доля", 0., 1.),
         ("eta", "Степень извлечения", "доля", 0., 1.)))
-TANK_PARAMETERS = tuple(Parameter(key, label, unit, DEFAULTS[key], low, None, key in ("area", "coefficient", "height", "pump_limit", "horizon", "sample_time"))
-    for key, label, unit, low in (
-        ("area", "Площадь", "м²", 0.), ("coefficient", "Коэффициент слива", "м^(5/2)/с", 0.),
-        ("height", "Высота", "м", 0.), ("pump_limit", "Предел насоса", "м³/с", 0.),
-        ("initial_level", "Исходный уровень", "м", 0.), ("pump", "Подача", "м³/с", 0.),
-        ("withdrawal", "Отбор", "м³/с", 0.), ("step_time", "Время ступени", "с", 0.),
-        ("pump_step", "Ступень подачи", "м³/с", None), ("withdrawal_step", "Ступень отбора", "м³/с", None),
-        ("horizon", "Горизонт", "с", 0.), ("sample_time", "Период расчёта", "с", 0.)))
+TANK_PARAMETERS = tuple(Parameter(key, label, unit, DEFAULTS[key], low, None, key in ("area", "coefficient", "height", "pump_limit", "horizon", "sample_time"), field)
+    for key, label, unit, low, field in (
+        ("area", "Площадь", "м²", 0., "Площадь A, м²"), ("coefficient", "Коэффициент слива", "м^(5/2)/с", 0., "Коэффициент c, м^(5/2)/с"),
+        ("height", "Высота", "м", 0., "Высота Hmax, м"), ("pump_limit", "Предел насоса", "м³/с", 0., "Предел Qmax, м³/с"),
+        ("initial_level", "Исходный уровень", "м", 0., "Исходный h0, м"), ("pump", "Подача", "м³/с", 0., "Подача Q0, м³/с"),
+        ("withdrawal", "Отбор", "м³/с", 0., "Отбор d0, м³/с"), ("step_time", "Время ступени", "с", 0., ""),
+        ("pump_step", "Ступень подачи", "м³/с", None, ""), ("withdrawal_step", "Ступень отбора", "м³/с", None, ""),
+        ("horizon", "Горизонт", "с", 0., ""), ("sample_time", "Период расчёта", "с", 0., "")))
 
-HEATER_PARAMETERS = tuple(Parameter(key, label, unit, heater.DEFAULTS[key], low, None, key in heater.POSITIVE)
-    for key, label, unit, low in (
-        ("mass", "Масса жидкости", "кг", 0.), ("heat_capacity", "Теплоёмкость", "кДж/(кг·К)", 0.),
-        ("flow", "Расход", "кг/с", 0.), ("inlet_temperature", "Температура на входе", "°C", None),
-        ("loss_coefficient", "Теплопотери UA", "кВт/К", 0.), ("ambient_temperature", "Температура среды", "°C", None),
-        ("power_limit", "Предел мощности", "кВт", 0.), ("power", "Исходная мощность", "кВт", 0.),
-        ("step_time", "Время ступени", "с", 0.), ("power_step", "Ступень мощности", "кВт", None),
-        ("inlet_step", "Ступень температуры входа", "°C", None), ("flow_step", "Ступень расхода", "кг/с", None),
-        ("sensor_delay", "Запаздывание датчика", "с", 0.), ("horizon", "Горизонт", "с", 0.),
-        ("sample_time", "Период расчёта", "с", 0.)))
+HEATER_PARAMETERS = tuple(Parameter(key, label, unit, heater.DEFAULTS[key], low, None, key in heater.POSITIVE, field)
+    for key, label, unit, low, field in (
+        ("mass", "Масса жидкости", "кг", 0., "Масса жидкости M, кг"), ("heat_capacity", "Теплоёмкость", "кДж/(кг·К)", 0., "Теплоёмкость c, кДж/(кг·К)"),
+        ("flow", "Расход", "кг/с", 0., "Расход W, кг/с"), ("inlet_temperature", "Температура на входе", "°C", None, "Температура входа Tвх, °C"),
+        ("loss_coefficient", "Теплопотери UA", "кВт/К", 0., ""), ("ambient_temperature", "Температура среды", "°C", None, "Температура среды Tср, °C"),
+        ("power_limit", "Предел мощности", "кВт", 0., "Предел мощности Pmax, кВт"), ("power", "Исходная мощность", "кВт", 0., "Исходная мощность P0, кВт"),
+        ("step_time", "Время ступени", "с", 0., ""), ("power_step", "Ступень мощности", "кВт", None, ""),
+        ("inlet_step", "Ступень температуры входа", "°C", None, "Ступень Tвх, °C"), ("flow_step", "Ступень расхода", "кг/с", None, ""),
+        ("sensor_delay", "Запаздывание датчика", "с", 0., ""), ("horizon", "Горизонт", "с", 0., ""),
+        ("sample_time", "Период расчёта", "с", 0., "")))
 
 MODELS = ModelRegistry((
     PhysicalModel("absorber", 2, "Абсорбер", ABSORBER_PARAMETERS, ABSORBER_SIGNALS,

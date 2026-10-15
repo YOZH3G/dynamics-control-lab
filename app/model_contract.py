@@ -35,6 +35,12 @@ class Parameter:
     minimum: float | None = None
     maximum: float | None = None
     strict_minimum: bool = False
+    # Label of the input field when it differs from "label, unit" (usually adds the symbol).
+    field: str = ""
+
+    @property
+    def field_label(self):
+        return self.field or f"{self.label}, {self.unit}"
 
 
 @dataclass(frozen=True)

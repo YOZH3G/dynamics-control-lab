@@ -1,117 +1,67 @@
 """Stirred tank with a heater: form, free response, PI and charts; state is kept apart from other models."""
 
-import tkinter as tk
-from tkinter import ttk
-
 from app.heater import (FIELD_DEFAULTS, MODEL_ID, MODEL_VERSION, VIEWS, equilibrium_temperature, identify, pi_tuning,
                         time_constant, validate_inputs, validate_state)
-from app.identification import bootstrap_intervals, quality_text, uncertainty_text
+from app.identification import quality_text, uncertainty_text
 from app.model_contract import copy_data
 from app.physical_models import MODELS, run_model
+from ui.object_page import ObjectPage
 
-LABELS = (("mass", "Масса жидкости M, кг"), ("heat_capacity", "Теплоёмкость c, кДж/(кг·К)"),
-          ("flow", "Расход W, кг/с"), ("inlet_temperature", "Температура входа Tвх, °C"),
-          ("loss_coefficient", "Теплопотери UA, кВт/К"), ("ambient_temperature", "Температура среды Tср, °C"),
-          ("power_limit", "Предел мощности Pmax, кВт"), ("power", "Исходная мощность P0, кВт"),
-          ("step_time", "Время ступени, с"), ("power_step", "Ступень мощности, кВт"),
-          ("inlet_step", "Ступень Tвх, °C"), ("flow_step", "Ступень расхода, кг/с"),
-          ("sensor_delay", "Запаздывание датчика, с"), ("horizon", "Горизонт, с"), ("sample_time", "Период расчёта, с"))
+PARAMETERS = tuple(p.key for p in MODELS.get(MODEL_ID).parameters)
 STATUS = dict(physical_stop="закипание", unreachable="задание недостижимо", settled="установилось", horizon="не установилось за горизонт")
 
 
-class HeaterPage(ttk.Frame):
+class HeaterPage(ObjectPage):
     chart_label = "Мощность"
+    object_name = "нагревателя"
+    fit_missing = "Сначала оцените K, T, L по актуальному отклику."
+    identify_response = staticmethod(identify)
+    pi_settings = staticmethod(pi_tuning)
 
     def __init__(self, parent, app):
-        super().__init__(parent, style="CardBody.TFrame", padding=12)
-        self.app = app
-        self.fields = {k: tk.StringVar(value=v) for k, v in FIELD_DEFAULTS.items()}
-        self.view = tk.StringVar(value=VIEWS[0])
-        self.summary = tk.StringVar(value="Задайте параметры ёмкости и рассчитайте свободный отклик на ступень.")
-        self.result = self.pi = self.fit = None
-        self.revision = 0
-        self.restoring = False
-        self.columnconfigure(1, weight=1)
-        ttk.Label(self, text="Ёмкость с нагревателем", style="CardTitle.TLabel").grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(self, text="M·c·dT/dt = W·c·(Tвх − T) + P − UA·(T − Tср). Опыт начинается в равновесии при P0.",
-                  style="Hint.TLabel", wraplength=320).grid(row=1, column=0, columnspan=2, sticky="ew", pady=8)
-        row = 2
-        for key, label in LABELS:
-            ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
-            ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
-            row += 1
-        ttk.Button(self, text="Свободный отклик", command=self.calculate).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4); row += 1
-        ttk.Label(self, text="Идентификация: свободный отклик на ступень одной мощности, к измеренной температуре добавляется шум датчика.",
-                  style="Hint.TLabel", wraplength=320).grid(row=row, column=0, columnspan=2, sticky="ew", pady=(4, 2)); row += 1
-        for key, label in (("noise", "Шум датчика σ, °C"), ("seed", "Число для генератора")):
-            ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
-            ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
-            row += 1
+        super().__init__(parent, app, MODEL_ID, FIELD_DEFAULTS, VIEWS,
+                         "Задайте параметры ёмкости и рассчитайте свободный отклик на ступень.")
+        self.result = self.pi = None
+        self.heading("Ёмкость с нагревателем", "M·c·dT/dt = W·c·(Tвх − T) + P − UA·(T − Tср). Опыт начинается в равновесии при P0.")
+        self.add_fields(PARAMETERS)
+        self.add_button("Свободный отклик", self.calculate, pady=4)
+        self.hint("Идентификация: свободный отклик на ступень одной мощности, к измеренной температуре добавляется шум датчика.",
+                  pady=(4, 2))
+        self.add_fields((("noise", "Шум датчика σ, °C"), ("seed", "Число для генератора")))
         for text, command in (("Оценить K, T, L по отклику", self.identify), ("Оценить неопределённость K, T, L", self.estimate_uncertainty),
                               ("Настроить PI по модели", self.tune)):
-            ttk.Button(self, text=text, command=command).grid(row=row, column=0, columnspan=2, sticky="ew", pady=3); row += 1
-        for key, label in (("setpoint", "Задание T, °C"), ("gain", "Kp, кВт/К"), ("integral_time", "Ti, с")):
-            ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
-            ttk.Entry(self, textvariable=self.fields[key], width=14).grid(row=row, column=1, sticky="ew")
-            row += 1
-        ttk.Button(self, text="Рассчитать с PI", command=self.calculate_pi).grid(row=row, column=0, columnspan=2, sticky="ew", pady=4); row += 1
-        ttk.Combobox(self, textvariable=self.view, values=VIEWS, state="readonly").grid(row=row, column=0, columnspan=2, sticky="ew"); row += 1
-        ttk.Label(self, textvariable=self.summary, style="Body.TLabel", wraplength=320).grid(row=row, column=0, columnspan=2, sticky="ew", pady=8); row += 1
-        for key, label in (("title", "Название опыта"), ("prediction", "Прогноз"), ("conclusion", "Вывод")):
-            ttk.Label(self, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", pady=2)
-            ttk.Entry(self, textvariable=self.fields[key]).grid(row=row, column=1, sticky="ew")
-            row += 1
-        ttk.Label(self, text="Графики, JSON, CSV и отчёты HTML/PDF доступны в разделе «Результат модели».",
-                  style="Hint.TLabel", wraplength=320).grid(row=row, column=0, columnspan=2, sticky="ew", pady=8); row += 1
+            self.add_button(text, command)
+        self.add_fields((("setpoint", "Задание T, °C"), ("gain", "Kp, кВт/К"), ("integral_time", "Ti, с")))
+        self.add_button("Рассчитать с PI", self.calculate_pi, pady=4)
+        self.add_view_list(VIEWS)
+        self.add_summary()
+        self.add_fields((("title", "Название опыта"), ("prediction", "Прогноз"), ("conclusion", "Вывод")), width=None)
+        self.hint("Графики, JSON, CSV и отчёты HTML/PDF доступны в разделе «Результат модели».")
         for text, command in (("Сохранить сеанс JSON", app._save_comparison_session), ("Открыть сеанс JSON", app._open_comparison_session)):
-            ttk.Button(self, text=text, command=command).grid(row=row, column=0, columnspan=2, sticky="ew", pady=3); row += 1
-        for key in (*(k for k, _ in LABELS), "noise", "seed"):
-            self.fields[key].trace_add("write", self.changed)
+            self.add_button(text, command)
+        self.trace((*PARAMETERS, "noise", "seed"), self.changed)
         # Controller settings do not change the experiment: an identified model stays current.
-        for key in ("setpoint", "gain", "integral_time"):
-            self.fields[key].trace_add("write", self.settings_changed)
+        self.trace(("setpoint", "gain", "integral_time"), self.settings_changed)
         self.view.trace_add("write", lambda *_: self.draw())
 
     def latest_result(self):
         """Native run shown on the common result page after a session is restored."""
         return self.pi or self.result
 
-    def signature(self):
-        return (self.revision, tuple(v.get() for v in self.fields.values()))
-
-    def changed(self, *_):
-        if self.restoring:
-            return
-        self.revision += 1
-        if getattr(self.app, "_task", None) is not None and self.app._task_kind == "heater":
-            self.app._cancel_task()
-        self.draw()
-
-    def settings_changed(self, *_):
-        if self.restoring:
-            return
-        if getattr(self.app, "_task", None) is not None and self.app._task_kind == "heater":
-            self.app._cancel_task()
-        self.draw()
-
     def controller(self):
         return {key: float(self.fields[key].get().replace(",", ".")) for key in ("gain", "integral_time", "setpoint")}
 
     def inputs(self):
         try:
-            values = {key: float(self.fields[key].get().replace(",", ".")) for key, _ in LABELS}
+            values = {key: float(self.fields[key].get().replace(",", ".")) for key in PARAMETERS}
         except ValueError as error:
             raise ValueError("Нагреватель: заполните числовые параметры.") from error
         return validate_inputs(values)
 
-    def fail(self, error):
-        self.summary.set(str(error))
-        self.app._set_status(str(error), error=True)
-
     def run(self, name, request, accept):
         revision = self.revision
-        self.app._start_task(name, lambda cancel, progress: dict(
-            run_model(MODEL_ID, request, cancel=cancel, progress=progress), revision=revision), accept, "heater")
+        self.perform(name, lambda cancel, progress: dict(
+            run_model(MODEL_ID, request, cancel=cancel, progress=progress), revision=revision), accept)
 
     def calculate(self):
         try:
@@ -141,45 +91,6 @@ class HeaterPage(ttk.Frame):
         self.view.set("PI")
         self.draw()
         self.app._set_status("Опыт с PI рассчитан")
-
-    def identify(self):
-        if self.result is None or self.result["revision"] != self.revision:
-            self.fail("Сначала рассчитайте свободный отклик при текущих параметрах."); return
-        try:
-            noise, seed = float(self.fields["noise"].get().replace(",", ".")), int(self.fields["seed"].get())
-        except ValueError:
-            self.fail("Нужны шум σ ≥ 0 и целое число генератора 0…4294967295."); return
-        run, revision = self.result, self.revision
-
-        def accept(fit):
-            self.fit = fit
-            self.view.set("Идентификация")
-            self.draw()
-            self.app._set_status("Идентификация нагревателя выполнена")
-        self.app._start_task("Идентификация нагревателя", lambda cancel, progress: dict(
-            identify(run, noise, seed, cancel=cancel, progress=progress), revision=revision), accept, "heater")
-
-    def estimate_uncertainty(self):
-        if self.fit is None or self.fit["revision"] != self.revision:
-            self.fail("Сначала оцените K, T, L по актуальному отклику."); return
-        fit = self.fit
-
-        def accept(record):
-            if self.fit is not fit or fit["revision"] != self.revision:
-                return
-            fit["uncertainty"] = record
-            self.draw()
-            self.app._set_status("Интервалы K, T и L нагревателя рассчитаны")
-        self.app._start_task("Неопределённость K, T, L нагревателя", lambda cancel, progress: bootstrap_intervals(
-            fit, cancel=cancel, progress=progress), accept, "heater")
-
-    def tune(self):
-        if self.fit is None or self.fit["revision"] != self.revision:
-            self.fail("Сначала оцените K, T, L по актуальному отклику."); return
-        settings = pi_tuning(self.fit)
-        self.fields["gain"].set(format(settings["gain"], ".4g"))
-        self.fields["integral_time"].set(format(settings["integral_time"], ".4g"))
-        self.app._set_status("Kp и Ti рассчитаны по модели; проверьте их кнопкой «Рассчитать с PI»")
 
     def fit_text(self, fit):
         physical = fit["physical"]

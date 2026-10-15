@@ -11,17 +11,21 @@ from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, write_session
 from app.exploration import controller_setting_map
 from app.simulation import RICH_ABSORBENT
+from ui.object_page import ObjectPage
 from ui.scenario_editor import ScenarioEditorDialog
-from tkinter import ttk
 
 
-class ProbePage(ttk.Frame):
-    """Minimal object page: the protocol main.py relies on, and nothing else."""
+class ProbePage(ObjectPage):
+    """Object page built only from the registry description: the protocol main.py relies on."""
     chart_label = "Пробный вход"
 
     def __init__(self, parent, app):
-        super().__init__(parent)
-        self.app, self.summary, self.result, self.draws = app, tk.StringVar(), None, 0
+        model = main.MODELS.get("test_heater")
+        super().__init__(parent, app, "test_heater", {p.key: format(p.default, "g") for p in model.parameters}, ("Отклик",), "")
+        self.result, self.draws = None, 0
+        self.heading("Пробный объект", "Форма из описания параметров")
+        self.labels = {key: entry.grid_info()["row"] for key, entry in self.add_fields([p.key for p in model.parameters]).items()}
+        self.trace(self.fields, self.changed)
 
     def draw(self):
         self.draws += 1
@@ -528,7 +532,8 @@ class GuiStateTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
-                patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store):
+                patch("ui.model_result_page.MODELS", registry), patch("ui.object_page.MODELS", registry), \
+                patch.object(main, "ScenarioStore", return_value=self.store):
             self.app = app = main.DynamicsControlApp(self.root)
             page = app.probe_page
             self.assertIs(app.object_pages["probe"], page)
@@ -539,6 +544,12 @@ class GuiStateTests(unittest.TestCase):
             self.assertGreater(page.draws, 0)
             self.assertEqual(app.topbar_context.get(), "Тест подключения")
             self.assertEqual(app._task_signature("probe"), ["Тестовый нагреватель", [False]])
+            labels = {w.grid_info()["row"]: w.cget("text") for w in page.grid_slaves(column=0) if w.winfo_class() == "TLabel"}
+            self.assertEqual([labels[page.labels[k]] for k in ("capacity", "initial")],
+                             ["Теплоёмкость, Дж/К", "Исходная температура, °C"])
+            self.assertEqual(page.fields["capacity"].get(), "4")
+            page.fields["capacity"].set("5")
+            self.assertEqual(page.revision, 1)
             page.result = registry.run("test_heater", {"parameters": {"capacity": 4., "initial": 20.}})
             laboratory = validate_laboratory(app._capture_laboratory())
             self.assertEqual(laboratory["probe"]["result"], page.result)
@@ -577,7 +588,7 @@ class GuiStateTests(unittest.TestCase):
         page.identify(); self.wait_for_task()
         self.assertEqual(page.view.get(), "Идентификация")
         self.assertIn("Физические значения: K=2.132", page.summary.get())
-        with patch("ui.heater_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+        with patch("ui.object_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
             page.estimate_uncertainty(); self.wait_for_task()
         self.assertIn("95% интервалы", page.summary.get())
         page.tune()
@@ -629,7 +640,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertAlmostEqual(page.fit["gain"],200.,delta=15.)
         import functools
         from app import identification
-        with patch("ui.tank_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+        with patch("ui.object_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
             page.estimate_uncertainty(); self.wait_for_task()
         self.assertEqual(page.fit["uncertainty"]["replicates"], 20, page.summary.get())
         self.assertIn("95% интервалы", page.summary.get())
