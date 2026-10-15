@@ -101,6 +101,30 @@ class ModelRegistry:
             raise ValueError("Страница объекта требует проверки снимка и собственного раздела.")
         self._models[model.id] = model
 
+    def add_file_model(self, model):
+        """Add an object described in a file, or replace an earlier description with the same key."""
+        old = self._models.get(model.id)
+        if old is not None and "file" not in old.capabilities:
+            raise ValueError(f"Ключ «{model.id}» занят встроенной моделью.")
+        if "file" not in model.capabilities:
+            raise ValueError("Заменять можно только объекты, описанные в файле.")
+        if old is not None:
+            del self._models[model.id]
+        try:
+            self.register(model)
+        except ValueError:
+            if old is not None:
+                self._models[old.id] = old
+            raise
+        return old
+
+    def extended(self, models):
+        """Copy of the registry with the given file-described models added or replaced."""
+        registry = ModelRegistry(self.all())
+        for model in models:
+            registry.add_file_model(model)
+        return registry
+
     def get(self, model_id):
         try:
             return self._models[model_id]

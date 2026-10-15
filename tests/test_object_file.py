@@ -11,7 +11,7 @@ from app.identification import bootstrap_intervals
 from app.model_contract import ModelRegistry
 from app.object_file import load_description
 
-EXAMPLE = Path(__file__).resolve().parents[1] / "docs/examples/heater_object.json"
+EXAMPLE = Path(__file__).resolve().parents[1] / "data/heater_object.json"
 
 
 def example():
@@ -94,7 +94,7 @@ class ObjectFileTests(unittest.TestCase):
             registry.validate(tampered)
 
     def test_invalid_descriptions_are_rejected(self):
-        changes = (dict(format="other"), dict(id="Bad id"), dict(name=""),
+        changes = (dict(format="other"), dict(id="Bad id"), dict(id="results"), dict(name=""),
                    dict(parameters=[]), dict(states=[{"key": "mass", "label": "x", "unit": "x", "initial": "1", "derivative": "0"}]),
                    dict(output={"key": "measured", "label": "x", "state": "unknown"}),
                    dict(input=dict(example()["input"], key="t")),

@@ -27,6 +27,9 @@ MAX_INTERVALS = 50000
 _KEY = re.compile(r"[a-z][a-z0-9_]{0,30}")
 _RESERVED = {"t", "commanded", "error", *FUNCTIONS}
 VIEWS = ("Свободный отклик", "PI", "Идентификация")
+# The key also names the object's section; it must not take a section of the program.
+SECTIONS = {"disturbances", "dynamics", "results", "comparison", "controller", "sensitivity", "tuning_map",
+            "identification", "model_result", "scenarios", "export"}
 # Descriptions loaded in this run, by model id; pages and session checks look them up here.
 DESCRIBED = {}
 
@@ -59,6 +62,8 @@ class ObjectDescription:
         taken = set()
         self.data = data
         self.id = _key(dict(key=data.get("id")), "Описание объекта", set())
+        if self.id in SECTIONS:
+            raise ValueError(f"Описание объекта: ключ «{self.id}» совпадает с разделом программы.")
         self.name = _text(data, "name", "Описание объекта", 40)
         self.sidebar, self.context, self.hint = (_text(data, k, "Описание объекта", 300) for k in ("sidebar", "context", "hint"))
         raw = data.get("parameters")
@@ -308,7 +313,7 @@ class ObjectDescription:
                    Signal(self.measured, self.measured_label, self.unit, "output"),
                    Signal("error", "Ошибка", self.unit, "error"))
         return PhysicalModel(self.id, 1, self.name, tuple(self.parameters), signals, ((self.input, self.measured),),
-                             ("dynamics", "PI", "identification"), (), self._run, self._project, self.id, self.sidebar,
+                             ("dynamics", "PI", "identification", "file"), (), self._run, self._project, self.id, self.sidebar,
                              self.context, self._validate_result, "ui.response_page:ResponsePage", self.validate_state)
 
     def _run(self, request, *, cancel=None, progress=None):
@@ -341,13 +346,14 @@ class ObjectDescription:
             raise ValueError(f"{self.name}: ограничения не соответствуют описанию.")
 
 
-def load_description(source):
-    """Description from a dict or a JSON file; remembered for pages and session checks."""
+def load_description(source, *, remember=True):
+    """Description from a dict or a JSON file; remembered for pages unless ``remember`` is false."""
     if isinstance(source, (str, Path)):
         try:
             source = json.loads(Path(source).read_text(encoding="utf-8"))
         except (OSError, ValueError) as error:
             raise ValueError("Не удалось прочитать описание объекта.") from error
     description = ObjectDescription(source)
-    DESCRIBED[description.id] = description
+    if remember:
+        DESCRIBED[description.id] = description
     return description

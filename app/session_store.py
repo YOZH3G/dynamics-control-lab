@@ -14,6 +14,7 @@ from .laboratory import CORRECTION_OPTIONS, DIRECTION_OPTIONS, FASTEST_OPTIONS, 
 from .controller_extensions import EXTENSION_DEFAULTS, extensions_from_form
 from .validation import parse_disturbance, parse_nonnegative_number, parse_percentage, parse_positive_number
 from .identification import validate_experiment_state, validate_experiment_origin
+from .object_file import ObjectDescription
 from .physical_models import MODELS, run_model
 from .model_contract import copy_data
 
@@ -199,24 +200,35 @@ def validate_input_state(state, *, draft=False):
     return normalize_scenario(scenario)
 
 
+MAX_FILE_OBJECTS = 10
+
+
 def validate_laboratory(laboratory):
     if laboratory is None:
         return None
     if not isinstance(laboratory, dict):
         raise ValueError("Лабораторная должна быть объектом JSON.")
     restored = copy_data(laboratory)
-    for object_model in MODELS.all():
+    objects = restored.setdefault("objects", [])
+    if not isinstance(objects, list) or len(objects) > MAX_FILE_OBJECTS:
+        raise ValueError(f"Лабораторная: нужен список не больше чем из {MAX_FILE_OBJECTS} описаний объектов.")
+    descriptions = [ObjectDescription(data) for data in objects]
+    if len({d.id for d in descriptions}) != len(descriptions):
+        raise ValueError("Лабораторная: описания объектов повторяются.")
+    # Objects described in files travel with the session; the rest is checked against them.
+    models = MODELS.extended(d.model() for d in descriptions)
+    for object_model in models.all():
         if object_model.page:
             restored[object_model.entry_page] = object_model.validate_state(restored.get(object_model.entry_page))
     restored.setdefault("selected_model", "absorber")
-    model = MODELS.get(restored["selected_model"])
+    model = models.get(restored["selected_model"])
     results = restored.get("model_results", {})
     if not isinstance(results, dict):
         raise ValueError("Лабораторная: неверные результаты моделей.")
-    restored["model_results"] = {key: MODELS.validate(value) for key, value in results.items()}
+    restored["model_results"] = {key: models.validate(value) for key, value in results.items()}
     if any(key != value["model_id"] for key, value in restored["model_results"].items()):
         raise ValueError("Лабораторная: идентификатор результата не соответствует модели.")
-    object_pages = {m.entry_page for m in MODELS.all() if m.id != "absorber"} - {"model_result"}
+    object_pages = {m.entry_page for m in models.all() if m.id != "absorber"} - {"model_result"}
     if (restored.get("page") != "model_result" and model.entry_page != restored.get("page")
             and (model.entry_page in object_pages or restored.get("page") in object_pages)):
         raise ValueError("Лабораторная: выбранная модель не соответствует разделу.")
@@ -245,7 +257,7 @@ def validate_laboratory(laboratory):
         raise ValueError("Лабораторная: выбранные опыты должны быть списком идентификаторов.")
     if restored["page"] not in ("disturbances", "dynamics", "results", "comparison", "controller",
                                 "sensitivity", "tuning_map", "scenarios", "export", "identification", "model_result",
-                                *(m.entry_page for m in MODELS.all() if m.page)):
+                                *(m.entry_page for m in models.all() if m.page)):
         raise ValueError("Лабораторная: неизвестный раздел.")
     draft = restored.get("prediction_fields")
     if not isinstance(draft, dict):

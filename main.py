@@ -20,6 +20,7 @@ from app.calculations import (
 )
 from app.comparison import MAX_COMPARISON_RUNS
 from app.model_contract import copy_data
+from app.object_file import DESCRIBED, load_description
 from app.background_tasks import BackgroundTask, CalculationCancelled
 from app.scenario_store import ScenarioStore
 from app.session_store import read_laboratory_session, restore_calculation, validate_input_state, write_session
@@ -244,10 +245,12 @@ class DynamicsControlApp(ttk.Frame):
                                        command=self.assignment_panel.advance_step, style="Toolbar.TButton")
         self.route_button.grid(row=0, column=1, sticky="e")
         self.selected_model = tk.StringVar(value="Абсорбер")
-        model_box = ttk.Combobox(topbar, textvariable=self.selected_model, values=tuple(model.name for model in MODELS.all()),
-                                state="readonly", width=12)
-        model_box.grid(row=0, column=2, sticky="e", padx=(12, 0))
-        model_box.bind("<<ComboboxSelected>>", self._select_model)
+        self.model_box = ttk.Combobox(topbar, textvariable=self.selected_model, values=tuple(model.name for model in MODELS.all()),
+                                      state="readonly", width=12)
+        self.model_box.grid(row=0, column=2, sticky="e", padx=(12, 0))
+        self.model_box.bind("<<ComboboxSelected>>", self._select_model)
+        ttk.Button(topbar, text="Открыть объект…", command=self._open_object_file, style="Toolbar.TButton").grid(
+            row=0, column=3, sticky="e", padx=(8, 0))
         ttk.Label(
             topbar,
             textvariable=self.topbar_context,
@@ -336,7 +339,7 @@ class DynamicsControlApp(ttk.Frame):
         inspector.rowconfigure(1, weight=1)
         ttk.Label(inspector, textvariable=self.page_title, style="SectionHeader.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 12))
 
-        page_host = ttk.Frame(inspector, style="App.TFrame")
+        self.page_host = page_host = ttk.Frame(inspector, style="App.TFrame")
         page_host.grid(row=1, column=0, sticky="nsew")
         page_host.columnconfigure(0, weight=1)
         page_host.rowconfigure(0, weight=1)
@@ -350,7 +353,6 @@ class DynamicsControlApp(ttk.Frame):
             "sensitivity",
             "tuning_map",
             "identification",
-            *(m.entry_page for m in MODELS.all() if m.page),
             "model_result",
             "scenarios",
             "export",
@@ -373,20 +375,15 @@ class DynamicsControlApp(ttk.Frame):
         self.export_panel.build(self.page_contents["export"])
         self.identification_page = IdentificationPage(self.page_contents["identification"], self)
         self.identification_page.grid(row=0, column=0, sticky="nsew")
-        # Object pages come from the model registry; each is also reachable as ``<entry_page>_page``.
-        self.object_pages = {}
-        for model in MODELS.all():
-            if model.page:
-                module, name = model.page.split(":")
-                page = getattr(importlib.import_module(module), name)(self.page_contents[model.entry_page], self, model)
-                page.grid(row=0, column=0, sticky="nsew")
-                self.object_pages[model.entry_page] = page
-                setattr(self, f"{model.entry_page}_page", page)
         self.model_result_page = ModelResultPage(self.page_contents["model_result"], self)
         self.model_result_page.grid(row=0, column=0, sticky="nsew")
         for page in self.pages.values():
             relax_field_widths(page.content)
             page.bind_mousewheel()
+        self.object_pages = {}
+        for model in MODELS.all():
+            if model.page:
+                self._add_object_page(model)
 
         actions = ttk.Frame(inspector, style="App.TFrame")
         actions.grid(row=2, column=0, sticky="ew", pady=(12, 0))
@@ -619,6 +616,64 @@ class DynamicsControlApp(ttk.Frame):
             card.grid(row=0, column=column, sticky="ew", padx=(0, 6) if column < 2 else 0)
             ttk.Label(card, text=label, style="MetricTitle.TLabel", wraplength=160).grid(row=0, column=0, sticky="w")
             ttk.Label(card, textvariable=variable, style="MetricValue.TLabel").grid(row=1, column=0, sticky="w", pady=(4, 0))
+
+    def _add_object_page(self, model):
+        """Create the page of a registered object; a page of a replaced description is rebuilt.
+
+        Each object page is also reachable as ``<entry_page>_page``.
+        """
+        key = model.entry_page
+        if self.object_pages.pop(key, None) is not None:
+            self.pages.pop(key).destroy()
+        holder = ScrollablePage(self.page_host, BACKGROUND)
+        holder.grid(row=0, column=0, sticky="nsew")
+        self.pages[key] = holder
+        self.page_contents[key] = holder.content
+        module, name = model.page.split(":")
+        page = getattr(importlib.import_module(module), name)(holder.content, self, model)
+        page.grid(row=0, column=0, sticky="nsew")
+        self.object_pages[key] = page
+        setattr(self, f"{key}_page", page)
+        relax_field_widths(holder.content)
+        holder.bind_mousewheel()
+        if getattr(self, "current_page", None) != key:
+            holder.grid_remove()
+        names = tuple(m.name for m in MODELS.all())
+        self.model_box.configure(values=names, width=min(24, max(12, *map(len, names))))
+
+    def _file_objects(self):
+        """Descriptions of objects opened from files, saved inside the session."""
+        return [DESCRIBED[m.id].data for m in MODELS.all() if "file" in m.capabilities]
+
+    def _add_file_object(self, source):
+        """Register an object described in a file (path or data); returns its model."""
+        description = load_description(source, remember=False)
+        current = DESCRIBED.get(description.id)
+        if current is not None and current.data == description.data and description.id in {m.id for m in MODELS.all()}:
+            return MODELS.get(description.id)
+        model = description.model()
+        if model.entry_page in self.pages and model.entry_page not in self.object_pages:
+            raise ValueError(f"Ключ «{model.id}» совпадает с разделом программы.")
+        MODELS.add_file_model(model)
+        DESCRIBED[description.id] = description
+        self.model_results.pop(model.id, None)
+        self._add_object_page(model)
+        return model
+
+    def _open_object_file(self):
+        selected = filedialog.askopenfilename(parent=self.root, title="Открыть описание объекта",
+                                              filetypes=(("Описание объекта JSON", "*.json"),))
+        if not selected:
+            return
+        self._cancel_task(announce=False)
+        try:
+            model = self._add_file_object(selected)
+        except ValueError as error:
+            self._set_status(str(error), error=True)
+            return
+        self.selected_model.set(model.name)
+        self._select_model()
+        self._set_status(f"Открыт объект «{model.name}»")
 
     def _model_workspace(self):
         self._show_page(MODELS.named(self.selected_model.get()).entry_page)
@@ -1218,6 +1273,7 @@ class DynamicsControlApp(ttk.Frame):
             "selected_model": MODELS.named(self.selected_model.get()).id,
             "model_results": copy_data(self.model_results) if copy_results else self.model_results,
             **{key: page.capture(copy_results=copy_results) for key, page in self.object_pages.items()},
+            "objects": copy_data(self._file_objects()),
         }
 
     def _restore_laboratory(self, laboratory, result):
@@ -1277,6 +1333,8 @@ class DynamicsControlApp(ttk.Frame):
                                          + f"\nОсталось попыток: {self.assignment_panel.current_lesson['attempt_limit'] - self.assignment_panel.assignment_attempts}.")
         self.comparison_page.refresh_table(laboratory["selected_runs"])
         self.identification_page.restore(laboratory.get("identification"))
+        for data in laboratory.get("objects", []):
+            self._add_file_object(data)
         for key, page in self.object_pages.items():
             page.restore(laboratory.get(key))
         self.model_results = copy.deepcopy(laboratory.get("model_results", {}))
@@ -2198,6 +2256,14 @@ def _run_release_check(output_path):
             if heater.result is None or heater.pi is None or heater.pi["metrics"]["status"] != "settled":
                 raise RuntimeError(heater.summary.get())
             expected_heater = heater.capture()
+            file_model = app._add_file_object(Path(__file__).resolve().parent / "data" / "heater_object.json")
+            app._show_page(file_model.entry_page)
+            described = app.object_pages[file_model.entry_page]
+            described.calculate(); wait_tank()
+            described.calculate_pi(); wait_tank()
+            if described.result is None or described.pi is None or described.pi["metrics"]["status"] != "settled":
+                raise RuntimeError(described.summary.get())
+            expected_file_object = described.capture()
             from app.model_contract import read_result, write_result
             from app.model_output import write_model_report
             expected_models = copy.deepcopy(app.model_results)
@@ -2236,6 +2302,9 @@ def _run_release_check(output_path):
             if app.heater_page.capture() != expected_heater:
                 raise RuntimeError("Не удалось точно восстановить работу с нагревателем.")
             report["heater_workflow_verified"] = True
+            if app.object_pages[file_model.entry_page].capture() != expected_file_object:
+                raise RuntimeError("Не удалось точно восстановить объект из файла.")
+            report["file_object_verified"] = True
             if app.model_results != expected_models:
                 raise RuntimeError("Общие результаты моделей восстановлены неточно.")
             report["model_contract_verified"] = True

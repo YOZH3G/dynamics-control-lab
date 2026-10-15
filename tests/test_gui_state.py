@@ -568,54 +568,96 @@ class GuiStateTests(unittest.TestCase):
             self.assertIn("division by zero", page.summary.get())
             app.selected_model.set("Абсорбер"); app._select_model()
 
-    def test_object_from_file_gets_a_working_page(self):
+    def test_object_from_file_opens_runs_and_travels_with_the_session(self):
         import functools
+        import json
         from app import identification
         from app.model_contract import ModelRegistry
-        from app.object_file import load_description
+        from app.object_file import DESCRIBED
         from app.physical_models import MODELS
-        from app.session_store import validate_laboratory
-        description = load_description(Path(__file__).resolve().parents[1] / "docs/examples/heater_object.json")
-        registry = ModelRegistry((*MODELS.all(), description.model()))
-        self.app._close_application()
-        self.root = tk.Tk()
-        self.root.withdraw()
-        with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
-                patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store):
-            self.app = app = main.DynamicsControlApp(self.root)
-            page = app.object_pages["file_heater"]
-            app.selected_model.set("Нагреватель из файла"); app._select_model()
-            self.assertEqual(app.current_page, "file_heater")
-            self.assertEqual(app.page_title.get(), "Нагреватель из файла: опыт и регулирование")
-            labels = [w.cget("text") for w in page.grid_slaves(column=0) if w.winfo_class() == "TLabel"]
-            self.assertIn("Масса жидкости M, кг", labels)
-            self.assertIn("Kp, кВт/°C", labels)
-            page.calculate(); self.wait_for_task()
-            self.assertIsNotNone(page.result, page.summary.get())
-            self.assertIn("исходное значение 41.12 °C", page.summary.get())
-            self.assertEqual(app.response_axis.get_ylabel(), "Температура в ёмкости, °C")
-            page.identify(); self.wait_for_task()
-            self.assertIn("Оценка по отклику: K=2.135", page.summary.get())
-            with patch("ui.object_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
-                page.estimate_uncertainty(); self.wait_for_task()
-            self.assertIn("95% интервалы", page.summary.get())
-            page.tune()
-            self.assertEqual(page.fields["integral_time"].get(), format(page.fit["time_constant"], ".4g"))
-            page.calculate_pi(); self.wait_for_task()
-            self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
-            app._show_page("model_result")
-            self.assertEqual(app.response_axis.get_ylabel(), "°C")
-            app._show_page("file_heater")
-            snapshot = page.capture()
-            laboratory = validate_laboratory(app._capture_laboratory())
-            page.restore(None)
-            self.assertIsNone(page.pi)
-            app._restore_laboratory(laboratory, app.last_calculation)
-            self.assertEqual(page.capture(), snapshot)
-            page.fields["mass"].set("abc")
-            page.calculate()
-            self.assertIn("заполните числовые параметры", page.summary.get())
-            app.selected_model.set("Абсорбер"); app._select_model()
+        example = Path(__file__).resolve().parents[1] / "data/heater_object.json"
+
+        def fresh_app(autosave=True):
+            # A separate registry per app, as on another computer where the object was never opened.
+            registry = ModelRegistry(MODELS.all())
+            patches = [patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry),
+                       patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store)]
+            if not autosave:
+                patches.append(patch.object(main.DynamicsControlApp, "_restore_autosave", lambda self: None))
+            for item in patches:
+                item.start(); self.addCleanup(item.stop)
+            self.app._close_application()
+            self.root = tk.Tk(); self.root.withdraw()
+            self.app = main.DynamicsControlApp(self.root)
+            return self.app, registry
+
+        app, registry = fresh_app()
+        DESCRIBED.pop("file_heater", None)
+        with patch("main.filedialog.askopenfilename", return_value=str(example)):
+            app._open_object_file()
+        self.assertEqual(app.current_page, "file_heater")
+        self.assertIn("Нагреватель из файла", app.model_box.cget("values"))
+        self.assertIn("Нагреватель из файла", app.status_text.get())
+        page = app.object_pages["file_heater"]
+        self.assertEqual(app.page_title.get(), "Нагреватель из файла: опыт и регулирование")
+        labels = [w.cget("text") for w in page.grid_slaves(column=0) if w.winfo_class() == "TLabel"]
+        self.assertIn("Масса жидкости M, кг", labels)
+        self.assertIn("Kp, кВт/°C", labels)
+        page.calculate(); self.wait_for_task()
+        self.assertIn("исходное значение 41.12 °C", page.summary.get())
+        self.assertEqual(app.response_axis.get_ylabel(), "Температура в ёмкости, °C")
+        page.identify(); self.wait_for_task()
+        self.assertIn("Оценка по отклику: K=2.135", page.summary.get())
+        with patch("ui.object_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+            page.estimate_uncertainty(); self.wait_for_task()
+        self.assertIn("95% интервалы", page.summary.get())
+        page.tune()
+        page.calculate_pi(); self.wait_for_task()
+        self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
+        app._show_page("model_result")
+        self.assertEqual(app.response_axis.get_ylabel(), "°C")
+        app._show_page("file_heater")
+        snapshot = page.capture()
+        session = Path(self.directory.name) / "file-object.json"
+        with patch("main.filedialog.asksaveasfilename", return_value=str(session)):
+            app._save_comparison_session()
+        saved = json.loads(session.read_text(encoding="utf-8"))
+        self.assertEqual(saved["laboratory"]["objects"], [json.loads(example.read_text(encoding="utf-8"))])
+
+        app._save_autosave(); app._finish_autosave(wait=True)
+        DESCRIBED.pop("file_heater", None)
+        app, registry = fresh_app()
+        self.assertEqual(app.object_pages["file_heater"].capture(), snapshot)
+        self.assertEqual(app.current_page, "file_heater")
+
+        DESCRIBED.pop("file_heater", None)
+        app, registry = fresh_app(autosave=False)
+        self.assertNotIn("file_heater", app.object_pages)
+        with patch("main.filedialog.askopenfilename", return_value=str(session)):
+            app._open_comparison_session()
+        self.assertEqual(app.current_page, "file_heater", app.status_text.get())
+        self.assertEqual(app.object_pages["file_heater"].capture(), snapshot)
+        self.assertIn("file_heater", app.model_results)
+
+        changed = json.loads(example.read_text(encoding="utf-8"))
+        changed["name"] = "Нагреватель 2"
+        other = Path(self.directory.name) / "changed.json"
+        other.write_text(json.dumps(changed, ensure_ascii=False), encoding="utf-8")
+        with patch("main.filedialog.askopenfilename", return_value=str(other)):
+            app._open_object_file()
+        self.assertEqual(app.selected_model.get(), "Нагреватель 2")
+        self.assertNotIn("Нагреватель из файла", app.model_box.cget("values"))
+        self.assertIsNone(app.object_pages["file_heater"].result)
+        self.assertNotIn("file_heater", app.model_results)
+        for data, message in ((dict(changed, id="heated_tank"), "занят встроенной моделью"), (dict(changed, name="Бак"), ""),
+                              ("{", "Не удалось прочитать")):
+            bad = Path(self.directory.name) / "bad.json"
+            bad.write_text(data if isinstance(data, str) else json.dumps(data, ensure_ascii=False), encoding="utf-8")
+            with patch("main.filedialog.askopenfilename", return_value=str(bad)):
+                app._open_object_file()
+            self.assertIn(message, app.status_text.get())
+            self.assertEqual(app.selected_model.get(), "Нагреватель 2")
+        app.selected_model.set("Абсорбер"); app._select_model()
 
     def test_heater_page_runs_shares_results_and_survives_session(self):
         import functools
