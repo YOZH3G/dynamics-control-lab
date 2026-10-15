@@ -12,7 +12,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 APP_NAME = "Лаборатория динамики и управления"
-APP_VERSION = "1.14.0"
+APP_VERSION = "1.14.1"
 
 from app.calculations import (
     DEFAULT_MODEL_VALUES,
