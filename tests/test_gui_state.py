@@ -12,6 +12,37 @@ from app.session_store import read_laboratory_session, restore_calculation, writ
 from app.exploration import controller_setting_map
 from app.simulation import RICH_ABSORBENT
 from ui.scenario_editor import ScenarioEditorDialog
+from tkinter import ttk
+
+
+class ProbePage(ttk.Frame):
+    """Minimal object page: the protocol main.py relies on, and nothing else."""
+    chart_label = "Пробный вход"
+
+    def __init__(self, parent, app):
+        super().__init__(parent)
+        self.app, self.summary, self.result, self.draws = app, tk.StringVar(), None, 0
+
+    def draw(self):
+        self.draws += 1
+
+    def signature(self):
+        return [self.result is not None]
+
+    def latest_result(self):
+        return self.result
+
+    def capture(self, *, copy_results=True):
+        return dict(model_id="test_heater", result=copy.deepcopy(self.result) if copy_results else self.result)
+
+    def restore(self, state):
+        self.result = None if state is None else copy.deepcopy(state["result"])
+
+
+def validate_probe_state(state):
+    if state is not None and (not isinstance(state, dict) or state.get("model_id") != "test_heater"):
+        raise ValueError("Пробный объект: неверный снимок.")
+    return state
 
 
 class GuiStateTests(unittest.TestCase):
@@ -479,6 +510,53 @@ class GuiStateTests(unittest.TestCase):
             self.assertEqual(self.app.model_results["test_heater"], result)
             self.app.selected_model.set("Абсорбер")
             self.app._select_model()
+
+    def test_object_page_connects_through_registry_without_main_changes(self):
+        import dataclasses
+        from app.model_contract import ModelRegistry
+        from app.physical_models import MODELS
+        from app.session_store import validate_laboratory
+        from test_physical_models import heater
+        probe = dataclasses.replace(heater(), entry_page="probe", page="test_gui_state:ProbePage",
+                                    validate_state=validate_probe_state)
+        registry = ModelRegistry((*MODELS.all(), probe))
+        with self.assertRaises(ValueError):
+            ModelRegistry((*MODELS.all(), dataclasses.replace(probe, validate_state=None)))
+        with self.assertRaises(ValueError):
+            ModelRegistry((*MODELS.all(), dataclasses.replace(probe, entry_page="tank")))
+        self.app._close_application()
+        self.root = tk.Tk()
+        self.root.withdraw()
+        with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
+                patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store):
+            self.app = app = main.DynamicsControlApp(self.root)
+            page = app.probe_page
+            self.assertIs(app.object_pages["probe"], page)
+            app.selected_model.set("Тестовый нагреватель"); app._select_model()
+            self.assertEqual(app.current_page, "probe")
+            self.assertEqual(app.page_title.get(), "Тестовый нагреватель: опыт и регулирование")
+            self.assertEqual(app._upper_chart_label(), "Пробный вход")
+            self.assertGreater(page.draws, 0)
+            self.assertEqual(app.topbar_context.get(), "Тест подключения")
+            self.assertEqual(app._task_signature("probe"), ["Тестовый нагреватель", [False]])
+            page.result = registry.run("test_heater", {"parameters": {"capacity": 4., "initial": 20.}})
+            laboratory = validate_laboratory(app._capture_laboratory())
+            self.assertEqual(laboratory["probe"]["result"], page.result)
+            expected = page.result
+            page.result = None
+            app.model_results.pop("test_heater", None)
+            app._restore_laboratory(laboratory, app.last_calculation)
+            self.assertEqual(page.result, expected)
+            self.assertEqual(app.current_page, "probe")
+            self.assertEqual(app.model_results["test_heater"], registry.result("test_heater", expected))
+            broken = app._capture_laboratory()
+            broken["probe"] = {"model_id": "other"}
+            with self.assertRaises(ValueError):
+                validate_laboratory(broken)
+            app._start_task("Пробный расчёт", lambda cancel, progress: 1 / 0, lambda value: None, "probe")
+            self.wait_for_task()
+            self.assertIn("division by zero", page.summary.get())
+            app.selected_model.set("Абсорбер"); app._select_model()
 
     def test_heater_page_runs_shares_results_and_survives_session(self):
         import functools

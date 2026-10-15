@@ -19,6 +19,8 @@ from ui.tank_sensitivity import TankSensitivity, VIEW as SENSITIVITY_VIEW
 
 
 class TankPage(ttk.Frame):
+    chart_label = "Подача и отбор"
+
     def __init__(self, parent, app):
         super().__init__(parent, style="CardBody.TFrame", padding=12)
         self.app = app
@@ -89,6 +91,10 @@ class TankPage(ttk.Frame):
             if k not in (*DEFAULTS,"mode"): var.trace_add("write",self.settings_changed)
         self.view.trace_add("write",lambda *_: self.draw())
         self.initial_entry.configure(state="disabled")
+
+    def latest_result(self):
+        """Native run shown on the common result page after a session is restored."""
+        return self.result
 
     def signature(self):
         return (self.revision,tuple(v.get() for v in self.fields.values()),tuple(v.get() for v in self.columns),tuple(v.get() for v in self.units),self.delimiter.get(),self.sensitivity.configuration())

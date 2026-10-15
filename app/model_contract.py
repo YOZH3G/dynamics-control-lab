@@ -66,6 +66,10 @@ class PhysicalModel:
     sidebar: str
     context: str
     validate_result: object = None
+    # Object page in the interface, "module:Class"; empty means only the common result page.
+    page: str = ""
+    # Checks the page snapshot stored in a session under ``entry_page``; required with ``page``.
+    validate_state: object = None
 
 
 class ModelRegistry:
@@ -86,6 +90,9 @@ class ModelRegistry:
         keys = {signal.key for signal in model.signals}
         if any(a not in keys or b not in keys for a, b in model.channels):
             raise ValueError("Канал управления должен ссылаться на сигналы модели.")
+        if model.page and (model.page.count(":") != 1 or not callable(model.validate_state)
+                           or any(m.entry_page == model.entry_page for m in self.all())):
+            raise ValueError("Страница объекта требует проверки снимка и собственного раздела.")
         self._models[model.id] = model
 
     def get(self, model_id):

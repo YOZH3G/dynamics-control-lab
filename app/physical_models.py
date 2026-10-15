@@ -6,6 +6,7 @@ from .calculations import DEFAULT_MODEL_VALUES
 from .tank import DEFAULTS
 from . import heater
 from .model_contract import ModelRegistry, Parameter, PhysicalModel, Signal
+from .tank_state import validate_tank_state
 
 
 def _absorber_run(request, *, cancel=None, progress=None):
@@ -172,12 +173,13 @@ MODELS = ModelRegistry((
     PhysicalModel("level_tank", 1, "Бак", TANK_PARAMETERS, TANK_SIGNALS,
                   (("pump", "level"),), ("balance", "dynamics", "PI", "identification"), ("empty", "full"),
                   _tank_run, _tank_result, "tank", "БАК",
-                  "Бак: объёмный баланс, локальная модель и PI; уровень в метрах", _validate_tank_result),
+                  "Бак: объёмный баланс, локальная модель и PI; уровень в метрах", _validate_tank_result,
+                  "ui.tank_page:TankPage", validate_tank_state),
     PhysicalModel(heater.MODEL_ID, heater.MODEL_VERSION, "Нагреватель", HEATER_PARAMETERS, HEATER_SIGNALS,
                   (("power", "temperature"),), ("balance", "dynamics", "PI", "identification"), ("boiling",),
                   _heater_run, _heater_result, "heater", "НАГРЕВ",
                   "Ёмкость с нагревателем: энергетический баланс, датчик с запаздыванием и PI; температура в °C",
-                  _validate_heater_result),
+                  _validate_heater_result, "ui.heater_page:HeaterPage", heater.validate_state),
 ))
 
 

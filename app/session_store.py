@@ -14,8 +14,6 @@ from .laboratory import CORRECTION_OPTIONS, DIRECTION_OPTIONS, FASTEST_OPTIONS, 
 from .controller_extensions import EXTENSION_DEFAULTS, extensions_from_form
 from .validation import parse_disturbance, parse_nonnegative_number, parse_percentage, parse_positive_number
 from .identification import validate_experiment_state, validate_experiment_origin
-from .tank_state import validate_tank_state
-from .heater import validate_state as validate_heater_state
 from .physical_models import MODELS, run_model
 from .model_contract import copy_data
 
@@ -207,8 +205,9 @@ def validate_laboratory(laboratory):
     if not isinstance(laboratory, dict):
         raise ValueError("Лабораторная должна быть объектом JSON.")
     restored = copy_data(laboratory)
-    restored["tank"] = validate_tank_state(restored.get("tank"))
-    restored["heater"] = validate_heater_state(restored.get("heater"))
+    for object_model in MODELS.all():
+        if object_model.page:
+            restored[object_model.entry_page] = object_model.validate_state(restored.get(object_model.entry_page))
     restored.setdefault("selected_model", "absorber")
     model = MODELS.get(restored["selected_model"])
     results = restored.get("model_results", {})
@@ -245,7 +244,8 @@ def validate_laboratory(laboratory):
             not isinstance(value, str) for value in restored["selected_runs"]):
         raise ValueError("Лабораторная: выбранные опыты должны быть списком идентификаторов.")
     if restored["page"] not in ("disturbances", "dynamics", "results", "comparison", "controller",
-                                "sensitivity", "tuning_map", "scenarios", "export", "identification", "tank", "heater", "model_result"):
+                                "sensitivity", "tuning_map", "scenarios", "export", "identification", "model_result",
+                                *(m.entry_page for m in MODELS.all() if m.page)):
         raise ValueError("Лабораторная: неизвестный раздел.")
     draft = restored.get("prediction_fields")
     if not isinstance(draft, dict):

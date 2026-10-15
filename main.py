@@ -1,4 +1,5 @@
 import copy
+import importlib
 from decimal import Decimal
 import json
 import shutil
@@ -28,8 +29,6 @@ from app.simulation import LEAN_GAS, RICH_ABSORBENT
 from app.controller_extensions import EXTENSION_DEFAULTS, EXTENSION_FIELDS
 from app.validation import parse_positive_number
 from ui.identification_page import IdentificationPage
-from ui.tank_page import TankPage
-from ui.heater_page import HeaterPage
 from ui.model_result_page import ModelResultPage
 from app.physical_models import MODELS, run_model
 from ui.chart_tools import SharedTimeCursor
@@ -351,8 +350,7 @@ class DynamicsControlApp(ttk.Frame):
             "sensitivity",
             "tuning_map",
             "identification",
-            "tank",
-            "heater",
+            *(m.entry_page for m in MODELS.all() if m.page),
             "model_result",
             "scenarios",
             "export",
@@ -375,10 +373,15 @@ class DynamicsControlApp(ttk.Frame):
         self.export_panel.build(self.page_contents["export"])
         self.identification_page = IdentificationPage(self.page_contents["identification"], self)
         self.identification_page.grid(row=0, column=0, sticky="nsew")
-        self.tank_page = TankPage(self.page_contents["tank"], self)
-        self.tank_page.grid(row=0, column=0, sticky="nsew")
-        self.heater_page = HeaterPage(self.page_contents["heater"], self)
-        self.heater_page.grid(row=0, column=0, sticky="nsew")
+        # Object pages come from the model registry; each is also reachable as ``<entry_page>_page``.
+        self.object_pages = {}
+        for model in MODELS.all():
+            if model.page:
+                module, name = model.page.split(":")
+                page = getattr(importlib.import_module(module), name)(self.page_contents[model.entry_page], self)
+                page.grid(row=0, column=0, sticky="nsew")
+                self.object_pages[model.entry_page] = page
+                setattr(self, f"{model.entry_page}_page", page)
         self.model_result_page = ModelResultPage(self.page_contents["model_result"], self)
         self.model_result_page.grid(row=0, column=0, sticky="nsew")
         for page in self.pages.values():
@@ -542,10 +545,8 @@ class DynamicsControlApp(ttk.Frame):
             return "Ошибки K/T"
         if self.current_page == "model_result":
             return "Входы модели"
-        elif self.current_page == "tank":
-            return "Подача и отбор"
-        elif self.current_page == "heater":
-            return "Мощность"
+        elif self.current_page in self.object_pages:
+            return self.object_pages[self.current_page].chart_label
         if self.current_page in ("comparison", "sensitivity", "tuning_map"):
             return {"comparison": "Сравнение", "sensitivity": "Чувствительность", "tuning_map": "Карта настроек"}[self.current_page]
         return "Сигналы регулятора" if self.absorber_form.controller_enabled.get() else "Воздействие"
@@ -639,9 +640,8 @@ class DynamicsControlApp(ttk.Frame):
             "scenarios": "Задание",
             "export": "Отчёт",
             "identification": "Идентификация по CSV",
-            "tank": "Бак: опыт и регулирование",
-            "heater": "Нагреватель: опыт и регулирование",
             "model_result": "Результат модели",
+            **{m.entry_page: f"{m.name}: опыт и регулирование" for m in MODELS.all() if m.page},
         }
         previous_page = self.current_page
         if previous_page in self.pages and previous_page != page:
@@ -725,12 +725,9 @@ class DynamicsControlApp(ttk.Frame):
         elif page == "model_result":
             self.metric_strip.grid_remove()
             self.model_result_page.draw()
-        elif page == "tank":
+        elif page in self.object_pages:
             self.metric_strip.grid_remove()
-            self.tank_page.draw()
-        elif page == "heater":
-            self.metric_strip.grid_remove()
-            self.heater_page.draw()
+            self.object_pages[page].draw()
         elif previous_page in ("identification", *object_pages, "model_result") and page != "comparison":
             self._draw_last_calculation()
         elif page != "comparison" and previous_page in ("comparison", "sensitivity", "tuning_map") and self._charts_show_comparison:
@@ -781,10 +778,8 @@ class DynamicsControlApp(ttk.Frame):
         self.text_tooltips.append(TextTooltip(widget, text))
 
     def _task_signature(self, kind):
-        if kind == "tank":
-            return [self.selected_model.get(), self.tank_page.signature()]
-        if kind == "heater":
-            return [self.selected_model.get(), self.heater_page.signature()]
+        if kind in self.object_pages:
+            return [self.selected_model.get(), self.object_pages[kind].signature()]
         steady_prediction = self.assignment_panel.predicted_steady.get()
         try:
             steady_prediction = float(steady_prediction.replace(",", "."))
@@ -842,10 +837,8 @@ class DynamicsControlApp(ttk.Frame):
             self.task_progress.configure(value=0)
             if self._task_kind == "identification" and not isinstance(error, CalculationCancelled):
                 self.identification_page.summary.set(str(error))
-            if self._task_kind == "tank" and not isinstance(error, CalculationCancelled):
-                self.tank_page.summary.set(str(error))
-            if self._task_kind == "heater" and not isinstance(error, CalculationCancelled):
-                self.heater_page.summary.set(str(error))
+            if self._task_kind in self.object_pages and not isinstance(error, CalculationCancelled):
+                self.object_pages[self._task_kind].summary.set(str(error))
             self._set_status("Расчёт отменён" if isinstance(error, CalculationCancelled) else str(error),
                              error=not isinstance(error, CalculationCancelled))
             return
@@ -1224,8 +1217,7 @@ class DynamicsControlApp(ttk.Frame):
             "identification": self.identification_page.capture(validate=False, copy_results=copy_results),
             "selected_model": MODELS.named(self.selected_model.get()).id,
             "model_results": copy_data(self.model_results) if copy_results else self.model_results,
-            "tank": self.tank_page.capture(copy_results=copy_results),
-            "heater": self.heater_page.capture(copy_results=copy_results),
+            **{key: page.capture(copy_results=copy_results) for key, page in self.object_pages.items()},
         }
 
     def _restore_laboratory(self, laboratory, result):
@@ -1285,16 +1277,15 @@ class DynamicsControlApp(ttk.Frame):
                                          + f"\nОсталось попыток: {self.assignment_panel.current_lesson['attempt_limit'] - self.assignment_panel.assignment_attempts}.")
         self.comparison_page.refresh_table(laboratory["selected_runs"])
         self.identification_page.restore(laboratory.get("identification"))
-        self.tank_page.restore(laboratory.get("tank"))
-        self.heater_page.restore(laboratory.get("heater"))
+        for key, page in self.object_pages.items():
+            page.restore(laboratory.get(key))
         self.model_results = copy.deepcopy(laboratory.get("model_results", {}))
         if result is not None and "absorber" not in self.model_results:
             self.model_results["absorber"] = MODELS.result("absorber", result)
-        if self.tank_page.result is not None and "level_tank" not in self.model_results:
-            self.model_results["level_tank"] = MODELS.result("level_tank", self.tank_page.result)
-        heater_record = self.heater_page.pi or self.heater_page.result
-        if heater_record is not None and "heated_tank" not in self.model_results:
-            self.model_results["heated_tank"] = MODELS.result("heated_tank", heater_record)
+        for model in MODELS.all():
+            record = self.object_pages[model.entry_page].latest_result() if model.page else None
+            if record is not None and model.id not in self.model_results:
+                self.model_results[model.id] = MODELS.result(model.id, record)
         self.selected_model.set(MODELS.get(laboratory["selected_model"]).name)
         self._show_page(laboratory["page"])
         self._mark_result_stale()
@@ -1822,7 +1813,7 @@ class DynamicsControlApp(ttk.Frame):
         self.response_canvas.draw_idle()
 
     def _redraw_signal_mode(self):
-        if self.last_calculation is not None and self.last_calculation["controller"] is not None and not self._charts_show_comparison and self.current_page not in ("identification", "tank", "model_result"):
+        if self.last_calculation is not None and self.last_calculation["controller"] is not None and not self._charts_show_comparison and self.current_page not in ("identification", *self.object_pages, "model_result"):
             self._draw_calculation_result(self.last_calculation)
 
     def _draw_controller_signals(self, time, error, control, dynamics=None, commanded=None):

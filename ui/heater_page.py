@@ -20,6 +20,8 @@ STATUS = dict(physical_stop="закипание", unreachable="задание н
 
 
 class HeaterPage(ttk.Frame):
+    chart_label = "Мощность"
+
     def __init__(self, parent, app):
         super().__init__(parent, style="CardBody.TFrame", padding=12)
         self.app = app
@@ -69,6 +71,10 @@ class HeaterPage(ttk.Frame):
         for key in ("setpoint", "gain", "integral_time"):
             self.fields[key].trace_add("write", self.settings_changed)
         self.view.trace_add("write", lambda *_: self.draw())
+
+    def latest_result(self):
+        """Native run shown on the common result page after a session is restored."""
+        return self.pi or self.result
 
     def signature(self):
         return (self.revision, tuple(v.get() for v in self.fields.values()))
