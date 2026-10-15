@@ -24,7 +24,8 @@ analysis = Analysis(
     pathex=[],
     binaries=[],
     datas=data_files,
-    hiddenimports=["matplotlib.backends.backend_tkagg"],
+    # Object pages are imported by name from the model registry, which the analysis cannot see.
+    hiddenimports=["matplotlib.backends.backend_tkagg", *(f"ui.{p.stem}" for p in Path("ui").glob("*.py") if p.stem != "__init__")],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
