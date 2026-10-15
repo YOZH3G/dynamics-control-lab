@@ -378,7 +378,7 @@ class DynamicsControlApp(ttk.Frame):
         for model in MODELS.all():
             if model.page:
                 module, name = model.page.split(":")
-                page = getattr(importlib.import_module(module), name)(self.page_contents[model.entry_page], self)
+                page = getattr(importlib.import_module(module), name)(self.page_contents[model.entry_page], self, model)
                 page.grid(row=0, column=0, sticky="nsew")
                 self.object_pages[model.entry_page] = page
                 setattr(self, f"{model.entry_page}_page", page)

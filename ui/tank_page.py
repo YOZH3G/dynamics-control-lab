@@ -23,8 +23,8 @@ class TankPage(ObjectPage):
     chart_label = "Подача и отбор"
     object_name = "бака"
 
-    def __init__(self, parent, app):
-        super().__init__(parent, app, MODEL_ID, FIELD_DEFAULTS, VIEWS,
+    def __init__(self, parent, app, model=None):
+        super().__init__(parent, app, model or MODELS.get(MODEL_ID), FIELD_DEFAULTS, VIEWS,
                          "Выберите исходное состояние, затем снимите ступенчатый эксперимент.")
         self.result = self.validation = self.pi = None
         self.headers, self.rows, self.source = [], [], ""

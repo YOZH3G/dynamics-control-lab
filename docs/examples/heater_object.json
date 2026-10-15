@@ -1,0 +1,143 @@
+{
+  "format": "dynamics-control-lab/object",
+  "version": 1,
+  "id": "file_heater",
+  "name": "Нагреватель из файла",
+  "sidebar": "НАГРЕВ",
+  "context": "Ёмкость с нагревателем, описанная в файле; температура в °C",
+  "hint": "M·c·dT/dt = W·c·(Tвх − T) + P − UA·(T − Tср). Опыт начинается в равновесии при P0.",
+  "parameters": [
+    {
+      "key": "mass",
+      "label": "Масса жидкости",
+      "unit": "кг",
+      "default": 50,
+      "minimum": 0,
+      "strict_minimum": true,
+      "field": "Масса жидкости M, кг"
+    },
+    {
+      "key": "heat_capacity",
+      "label": "Теплоёмкость",
+      "unit": "кДж/(кг·К)",
+      "default": 4.19,
+      "minimum": 0,
+      "strict_minimum": true,
+      "field": "Теплоёмкость c, кДж/(кг·К)"
+    },
+    {
+      "key": "flow",
+      "label": "Расход",
+      "unit": "кг/с",
+      "default": 0.1,
+      "minimum": 0,
+      "field": "Расход W, кг/с"
+    },
+    {
+      "key": "inlet_temperature",
+      "label": "Температура на входе",
+      "unit": "°C",
+      "default": 15,
+      "field": "Температура входа Tвх, °C"
+    },
+    {
+      "key": "loss_coefficient",
+      "label": "Теплопотери UA",
+      "unit": "кВт/К",
+      "default": 0.05,
+      "minimum": 0
+    },
+    {
+      "key": "ambient_temperature",
+      "label": "Температура среды",
+      "unit": "°C",
+      "default": 20,
+      "field": "Температура среды Tср, °C"
+    },
+    {
+      "key": "power_limit",
+      "label": "Предел мощности",
+      "unit": "кВт",
+      "default": 20,
+      "minimum": 0,
+      "strict_minimum": true,
+      "field": "Предел мощности Pmax, кВт"
+    },
+    {
+      "key": "power",
+      "label": "Исходная мощность",
+      "unit": "кВт",
+      "default": 12,
+      "minimum": 0,
+      "field": "Исходная мощность P0, кВт"
+    },
+    {
+      "key": "step_time",
+      "label": "Время ступени",
+      "unit": "с",
+      "default": 60,
+      "minimum": 0
+    },
+    {
+      "key": "power_step",
+      "label": "Ступень мощности",
+      "unit": "кВт",
+      "default": 2
+    },
+    {
+      "key": "sensor_delay",
+      "label": "Запаздывание датчика",
+      "unit": "с",
+      "default": 5,
+      "minimum": 0
+    },
+    {
+      "key": "horizon",
+      "label": "Горизонт",
+      "unit": "с",
+      "default": 2400,
+      "minimum": 0,
+      "strict_minimum": true
+    },
+    {
+      "key": "sample_time",
+      "label": "Период расчёта",
+      "unit": "с",
+      "default": 1,
+      "minimum": 0,
+      "strict_minimum": true
+    }
+  ],
+  "states": [
+    {
+      "key": "temperature",
+      "label": "Температура в ёмкости",
+      "unit": "°C",
+      "initial": "(flow*heat_capacity*inlet_temperature + power + loss_coefficient*ambient_temperature) / (flow*heat_capacity + loss_coefficient)",
+      "derivative": "(flow*heat_capacity*(inlet_temperature - temperature) + heating - loss_coefficient*(temperature - ambient_temperature)) / (mass*heat_capacity)"
+    }
+  ],
+  "input": {
+    "key": "heating",
+    "label": "Мощность нагревателя",
+    "unit": "кВт",
+    "initial": "power",
+    "step": "power_step",
+    "step_time": "step_time",
+    "minimum": "0",
+    "maximum": "power_limit"
+  },
+  "output": {
+    "key": "measured",
+    "label": "Измеренная температура",
+    "state": "temperature",
+    "delay": "sensor_delay"
+  },
+  "horizon": "horizon",
+  "sample_time": "sample_time",
+  "pi": {
+    "setpoint": 45,
+    "gain": 3,
+    "integral_time": 300
+  }
+}

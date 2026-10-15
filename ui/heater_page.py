@@ -18,8 +18,8 @@ class HeaterPage(ObjectPage):
     identify_response = staticmethod(identify)
     pi_settings = staticmethod(pi_tuning)
 
-    def __init__(self, parent, app):
-        super().__init__(parent, app, MODEL_ID, FIELD_DEFAULTS, VIEWS,
+    def __init__(self, parent, app, model=None):
+        super().__init__(parent, app, model or MODELS.get(MODEL_ID), FIELD_DEFAULTS, VIEWS,
                          "Задайте параметры ёмкости и рассчитайте свободный отклик на ступень.")
         self.result = self.pi = None
         self.heading("Ёмкость с нагревателем", "M·c·dT/dt = W·c·(Tвх − T) + P − UA·(T − Tср). Опыт начинается в равновесии при P0.")

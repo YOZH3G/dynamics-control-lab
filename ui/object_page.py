@@ -9,7 +9,6 @@ import tkinter as tk
 from tkinter import ttk
 
 from app.identification import bootstrap_intervals
-from app.physical_models import MODELS
 
 WRAP = 320
 
@@ -20,10 +19,10 @@ class ObjectPage(ttk.Frame):
     object_name = ""
     fit_missing = "Сначала оцените актуальную локальную модель."
 
-    def __init__(self, parent, app, model_id, field_defaults, views, summary):
+    def __init__(self, parent, app, model, field_defaults, views, summary):
         super().__init__(parent, style="CardBody.TFrame", padding=12)
         self.app = app
-        self.model = MODELS.get(model_id)
+        self.model = model
         self.kind = self.model.entry_page
         self.fields = {k: tk.StringVar(value=v) for k, v in field_defaults.items()}
         self.view = tk.StringVar(value=views[0])

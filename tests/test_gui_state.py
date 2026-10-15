@@ -19,9 +19,8 @@ class ProbePage(ObjectPage):
     """Object page built only from the registry description: the protocol main.py relies on."""
     chart_label = "Пробный вход"
 
-    def __init__(self, parent, app):
-        model = main.MODELS.get("test_heater")
-        super().__init__(parent, app, "test_heater", {p.key: format(p.default, "g") for p in model.parameters}, ("Отклик",), "")
+    def __init__(self, parent, app, model):
+        super().__init__(parent, app, model, {p.key: format(p.default, "g") for p in model.parameters}, ("Отклик",), "")
         self.result, self.draws = None, 0
         self.heading("Пробный объект", "Форма из описания параметров")
         self.labels = {key: entry.grid_info()["row"] for key, entry in self.add_fields([p.key for p in model.parameters]).items()}
@@ -532,7 +531,7 @@ class GuiStateTests(unittest.TestCase):
         self.root = tk.Tk()
         self.root.withdraw()
         with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
-                patch("ui.model_result_page.MODELS", registry), patch("ui.object_page.MODELS", registry), \
+                patch("ui.model_result_page.MODELS", registry), \
                 patch.object(main, "ScenarioStore", return_value=self.store):
             self.app = app = main.DynamicsControlApp(self.root)
             page = app.probe_page
@@ -567,6 +566,55 @@ class GuiStateTests(unittest.TestCase):
             app._start_task("Пробный расчёт", lambda cancel, progress: 1 / 0, lambda value: None, "probe")
             self.wait_for_task()
             self.assertIn("division by zero", page.summary.get())
+            app.selected_model.set("Абсорбер"); app._select_model()
+
+    def test_object_from_file_gets_a_working_page(self):
+        import functools
+        from app import identification
+        from app.model_contract import ModelRegistry
+        from app.object_file import load_description
+        from app.physical_models import MODELS
+        from app.session_store import validate_laboratory
+        description = load_description(Path(__file__).resolve().parents[1] / "docs/examples/heater_object.json")
+        registry = ModelRegistry((*MODELS.all(), description.model()))
+        self.app._close_application()
+        self.root = tk.Tk()
+        self.root.withdraw()
+        with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
+                patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store):
+            self.app = app = main.DynamicsControlApp(self.root)
+            page = app.object_pages["file_heater"]
+            app.selected_model.set("Нагреватель из файла"); app._select_model()
+            self.assertEqual(app.current_page, "file_heater")
+            self.assertEqual(app.page_title.get(), "Нагреватель из файла: опыт и регулирование")
+            labels = [w.cget("text") for w in page.grid_slaves(column=0) if w.winfo_class() == "TLabel"]
+            self.assertIn("Масса жидкости M, кг", labels)
+            self.assertIn("Kp, кВт/°C", labels)
+            page.calculate(); self.wait_for_task()
+            self.assertIsNotNone(page.result, page.summary.get())
+            self.assertIn("исходное значение 41.12 °C", page.summary.get())
+            self.assertEqual(app.response_axis.get_ylabel(), "Температура в ёмкости, °C")
+            page.identify(); self.wait_for_task()
+            self.assertIn("Оценка по отклику: K=2.135", page.summary.get())
+            with patch("ui.object_page.bootstrap_intervals", functools.partial(identification.bootstrap_intervals, replicates=20)):
+                page.estimate_uncertainty(); self.wait_for_task()
+            self.assertIn("95% интервалы", page.summary.get())
+            page.tune()
+            self.assertEqual(page.fields["integral_time"].get(), format(page.fit["time_constant"], ".4g"))
+            page.calculate_pi(); self.wait_for_task()
+            self.assertEqual(page.pi["metrics"]["status"], "settled", page.summary.get())
+            app._show_page("model_result")
+            self.assertEqual(app.response_axis.get_ylabel(), "°C")
+            app._show_page("file_heater")
+            snapshot = page.capture()
+            laboratory = validate_laboratory(app._capture_laboratory())
+            page.restore(None)
+            self.assertIsNone(page.pi)
+            app._restore_laboratory(laboratory, app.last_calculation)
+            self.assertEqual(page.capture(), snapshot)
+            page.fields["mass"].set("abc")
+            page.calculate()
+            self.assertIn("заполните числовые параметры", page.summary.get())
             app.selected_model.set("Абсорбер"); app._select_model()
 
     def test_heater_page_runs_shares_results_and_survives_session(self):
