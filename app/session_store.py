@@ -228,7 +228,7 @@ def validate_laboratory(laboratory):
     restored["model_results"] = {key: models.validate(value) for key, value in results.items()}
     if any(key != value["model_id"] for key, value in restored["model_results"].items()):
         raise ValueError("Лабораторная: идентификатор результата не соответствует модели.")
-    object_pages = {m.entry_page for m in models.all() if m.id != "absorber"} - {"model_result"}
+    object_pages = {m.entry_page for m in models.all() if not m.sections} - {"model_result"}
     if (restored.get("page") != "model_result" and model.entry_page != restored.get("page")
             and (model.entry_page in object_pages or restored.get("page") in object_pages)):
         raise ValueError("Лабораторная: выбранная модель не соответствует разделу.")

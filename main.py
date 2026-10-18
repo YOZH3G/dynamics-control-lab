@@ -684,7 +684,7 @@ class DynamicsControlApp(ttk.Frame):
     def _select_model(self, _event=None):
         self._cancel_task(announce=False)
         model = MODELS.named(self.selected_model.get())
-        self._show_page(getattr(self, "_absorber_page", model.entry_page) if model.id == "absorber" else model.entry_page)
+        self._show_page(getattr(self, "_absorber_page", model.entry_page) if model.sections else model.entry_page)
 
     def _show_page(self, page):
         titles = {
@@ -707,7 +707,7 @@ class DynamicsControlApp(ttk.Frame):
             self._page_context[previous_page] = (self.pages[previous_page].canvas.yview()[0],
                 focus if focus is not None and str(focus).startswith(str(self.pages[previous_page])) else None)
         self.current_page = page
-        object_pages = {m.entry_page for m in MODELS.all() if m.id != "absorber"} - {"model_result"}
+        object_pages = {m.entry_page for m in MODELS.all() if not m.sections} - {"model_result"}
         if page in object_pages:
             if previous_page not in object_pages: self._absorber_context = self.topbar_context.get()
             self.topbar_context.set(next(m for m in MODELS.all() if m.entry_page == page).context)
@@ -716,7 +716,7 @@ class DynamicsControlApp(ttk.Frame):
             for axis in (self.disturbance_axis,self.response_axis):
                 axis.figure.set_layout_engine("constrained")
         if page != "model_result":
-            model = next((m for m in MODELS.all() if m.entry_page == page), MODELS.get("absorber"))
+            model = next(m for m in MODELS.all() if m.entry_page == page or page in m.sections)
             self.selected_model.set(model.name)
         model = MODELS.named(self.selected_model.get())
         self.sidebar_title.configure(text=model.sidebar)
@@ -727,8 +727,8 @@ class DynamicsControlApp(ttk.Frame):
         elif previous_page not in object_pages:
             self._cancel_task(announce=False)
         for widget in self.absorber_action_widgets:
-            widget.grid_remove() if page == "model_result" or model.id != "absorber" else widget.grid()
-        self.route_button.grid_remove() if page == "model_result" or model.id != "absorber" else self.route_button.grid()
+            widget.grid_remove() if page == "model_result" or not model.sections else widget.grid()
+        self.route_button.grid_remove() if page == "model_result" or not model.sections else self.route_button.grid()
         for key, widget in self.pages.items():
             if key != page:
                 widget.grid_remove()
@@ -746,9 +746,9 @@ class DynamicsControlApp(ttk.Frame):
                          and self.last_calculation is not None and self.last_calculation["controller"] is not None)
             self.signal_mode_box.configure(state="readonly" if available else "disabled")
             self.signal_mode_box.grid_remove() if page in (*object_pages, "model_result") else self.signal_mode_box.grid()
-        self.nav_labels["disturbances"] = "Параметры опыта" if model.id == "absorber" else "Работа с моделью"
+        self.nav_labels["disturbances"] = "Параметры опыта" if model.sections else "Работа с моделью"
         for key, button in self.nav_buttons.items():
-            visible = model.id == "absorber" or key in ("disturbances", "model_result")
+            visible = key in model.sections or key in ("disturbances", "model_result")
             button.grid() if visible else button.grid_remove()
             selected = key == page or (key == "disturbances" and page == model.entry_page)
             button.configure(style="SelectedSidebarNav.TButton" if selected else "SidebarNav.TButton")
@@ -809,7 +809,7 @@ class DynamicsControlApp(ttk.Frame):
         else:
             self.sidebar_title.grid()
             self.sidebar_meta.grid()
-            if MODELS.named(self.selected_model.get()).id == "absorber":
+            if MODELS.named(self.selected_model.get()).sections:
                 self.research_label.grid()
             else:
                 self.research_label.grid_remove()

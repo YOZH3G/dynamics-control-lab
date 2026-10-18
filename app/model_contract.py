@@ -76,6 +76,8 @@ class PhysicalModel:
     page: str = ""
     # Checks the page snapshot stored in a session under ``entry_page``; required with ``page``.
     validate_state: object = None
+    # Sidebar sections of a workspace with several pages, the entry page among them; empty for one object page.
+    sections: tuple = ()
 
 
 class ModelRegistry:
