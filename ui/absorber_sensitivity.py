@@ -47,7 +47,7 @@ class AbsorberSensitivity(ttk.Frame):
         return {key: var.get() for key, var in self.fields.items()}
 
     def changed(self, *_):
-        self.page.app._invalidate_task()
+        self.page.app.absorber._invalidate_task()
         if self.page.view.get() == VIEW: self.draw()
 
     def index(self):
@@ -59,7 +59,7 @@ class AbsorberSensitivity(ttk.Frame):
         return r is not None and (r["origin"]["data_revision"] != page.generation
             or r["origin"]["result_revision"] != page.result_revision
             or r["fields"] != self.configuration()
-            or app._normalized_input_state(r["input_state"]) != app._normalized_input_state(app._capture_input_state()))
+            or app.absorber._normalized_input_state(r["input_state"]) != app.absorber._normalized_input_state(app.absorber._capture_input_state()))
 
     def refresh(self, selected=0):
         labels = [] if self.result is None else [case_label(c) for c in self.result["cases"]]
@@ -80,14 +80,14 @@ class AbsorberSensitivity(ttk.Frame):
         page, app = self.page, self.page.app
         if not page.result_current or page.metadata["input_role"].get() != "η, доля":
             page.summary.set("Нужна актуальная оценка CSV с подтверждённым входом η, доля."); return
-        expected_role = "Xог, доля" if app.absorber_form.chain == "lean_gas" else "Xна, доля"
+        expected_role = "Xог, доля" if app.absorber.absorber_form.chain == "lean_gas" else "Xна, доля"
         if page.metadata["output_role"].get() != expected_role:
             page.summary.set("Выход CSV должен совпадать с выбранной цепью абсорбера: " + expected_role); return
         try:
-            request = dict(chain=app.absorber_form.chain, parameters=copy.deepcopy(app.absorber_form.model_values),
-                component=app.absorber_form.read_fraction(app.absorber_form.component_enabled.get(), app.absorber_form.component_value, app.absorber_form.component_error, app.absorber_form.component_entry),
-                flow=app.absorber_form.read_fraction(app.absorber_form.flow_enabled.get(), app.absorber_form.flow_value, app.absorber_form.flow_error, app.absorber_form.flow_entry),
-                dynamics=app.absorber_form.read_dynamic_parameters(), controller=app.absorber_form.read_controller_parameters())
+            request = dict(chain=app.absorber.absorber_form.chain, parameters=copy.deepcopy(app.absorber.absorber_form.model_values),
+                component=app.absorber.absorber_form.read_fraction(app.absorber.absorber_form.component_enabled.get(), app.absorber.absorber_form.component_value, app.absorber.absorber_form.component_error, app.absorber.absorber_form.component_entry),
+                flow=app.absorber.absorber_form.read_fraction(app.absorber.absorber_form.flow_enabled.get(), app.absorber.absorber_form.flow_value, app.absorber.absorber_form.flow_error, app.absorber.absorber_form.flow_entry),
+                dynamics=app.absorber.absorber_form.read_dynamic_parameters(), controller=app.absorber.absorber_form.read_controller_parameters())
             if request["controller"] is None or request["controller"]["controller_type"] != "PI":
                 raise ValueError("Включите PI в настройках абсорбера и задайте концентрацию, отличную от исходной.")
             fields = self.configuration()
@@ -96,7 +96,7 @@ class AbsorberSensitivity(ttk.Frame):
             page.summary.set(str(error)); return
         origin = page.origin()
         local = {key: float(page.result[key]) for key in ("gain", "time_constant", "delay")}
-        state = app._capture_input_state()
+        state = app.absorber._capture_input_state()
         def accept(result):
             self.result = result; self.refresh(); page.view.set(VIEW); page.draw()
             app._set_status("Проверка ошибок оценки на абсорбере выполнена")

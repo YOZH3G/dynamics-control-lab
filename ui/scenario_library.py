@@ -62,7 +62,7 @@ class ScenarioLibrary:
         ).grid(row=5, column=0, sticky="ew")
         ttk.Label(
             scenario_card,
-            textvariable=self.app.active_scenario,
+            textvariable=self.app.absorber.active_scenario,
             style="Muted.TLabel",
             wraplength=330,
         ).grid(row=6, column=0, sticky="w", pady=(8, 0))
@@ -116,9 +116,9 @@ class ScenarioLibrary:
         scenario = self.by_name[self.selected.get()]
         number = int(self.variant.get())
         if self.store.is_builtin(scenario["name"]):
-            self.app._apply_scenario_data(builtin_variant(scenario, number), number)
+            self.app.absorber._apply_scenario_data(builtin_variant(scenario, number), number)
         else:
-            self.app._apply_scenario_data(scenario)
+            self.app.absorber._apply_scenario_data(scenario)
 
     def toggle_teacher_mode(self):
         if self.teacher_mode.get():
@@ -189,7 +189,7 @@ class ScenarioLibrary:
             self.update_description()
         else:
             self.description.set(scenario["description"])
-        self.app.assignment_panel.assignment_enabled.set(False)
-        self.app.assignment_panel.update_states()
-        self.app._apply_scenario_data(scenario)
-        self.app._calculate()
+        self.app.absorber.assignment_panel.assignment_enabled.set(False)
+        self.app.absorber.assignment_panel.update_states()
+        self.app.absorber._apply_scenario_data(scenario)
+        self.app.absorber._calculate()

@@ -70,30 +70,30 @@ def run_check(output_path, app_class, version):
                     root.update()
                     time.sleep(.002)
 
-            app._apply_scenario_data(app.scenario_library.scenarios[1])
-            measure("absorber_calculation_and_display", lambda: (app._calculate(), wait()))
+            app.absorber._apply_scenario_data(app.absorber.scenario_library.scenarios[1])
+            measure("absorber_calculation_and_display", lambda: (app.absorber._calculate(), wait()))
             measure("tank_calculation", lambda: simulate(DEFAULTS))
             source = Path(__file__).resolve().parent.parent / "data" / "identification_step.csv"
             headers, rows = read_experiment(source)
             arrays = experiment_columns(headers, rows, headers, ("с", "как в файле", "как в файле"))
             measure("csv_import", lambda: read_experiment(source))
             measure("identification", lambda: identify_step(*arrays))
-            page = app.identification_page
+            page = app.absorber.identification_page
             app._show_page("identification")
             page.load_path(source)
             page.metadata["input_role"].set("η, доля")
             page.metadata["output_role"].set("Xна, доля")
             page.calculate()
             wait()
-            app.absorber_form.chain = RICH_ABSORBENT
-            app.absorber_form.controller_enabled.set(True)
-            app.absorber_form.controller_type.set("PI")
-            for variable, value in ((app.absorber_form.setpoint, "30.5"), (app.absorber_form.control_limit, "20"),
-                                    (app.absorber_form.simulation_duration, "100"), (app.absorber_form.time_constant, "8"),
-                                    (app.absorber_form.delay, "0")):
+            app.absorber.absorber_form.chain = RICH_ABSORBENT
+            app.absorber.absorber_form.controller_enabled.set(True)
+            app.absorber.absorber_form.controller_type.set("PI")
+            for variable, value in ((app.absorber.absorber_form.setpoint, "30.5"), (app.absorber.absorber_form.control_limit, "20"),
+                                    (app.absorber.absorber_form.simulation_duration, "100"), (app.absorber.absorber_form.time_constant, "8"),
+                                    (app.absorber.absorber_form.delay, "0")):
                 variable.set(value)
-            app.absorber_form.component_enabled.set(False)
-            app.absorber_form.flow_enabled.set(False)
+            app.absorber.absorber_form.component_enabled.set(False)
+            app.absorber.absorber_form.flow_enabled.set(False)
             sensitivity = page.absorber_sensitivity
             for key, value in dict(k_errors="-20;0;20", t_errors="-20;0;20", l_errors="0;1").items():
                 sensitivity.fields[key].set(value)
@@ -168,7 +168,7 @@ def run_check(output_path, app_class, version):
                 if now < deadline:
                     root.after(10, heartbeat)
 
-            app.assignment_panel.student_conclusion.set("Performance check")
+            app.absorber.assignment_panel.student_conclusion.set("Performance check")
             root.after(10, heartbeat)
             root.after(20, app._autosave_tick)
             cpu = time.process_time()

@@ -127,7 +127,7 @@ class IdentificationPage(ttk.Frame):
         self.draw()
 
     def changed(self, *_):
-        self.app._invalidate_task()
+        self.app.absorber._invalidate_task()
         self.generation += 1
         self.result_current = False
         if self.result is not None:
@@ -320,8 +320,8 @@ class IdentificationPage(ttk.Frame):
 
     def apply(self):
         if self.result is not None and self.result_current:
-            self.app.absorber_form.time_constant.set(f"{self.result['time_constant']:.12g}")
-            self.app.absorber_form.delay.set(f"{self.result['delay']:.12g}")
+            self.app.absorber.absorber_form.time_constant.set(f"{self.result['time_constant']:.12g}")
+            self.app.absorber.absorber_form.delay.set(f"{self.result['delay']:.12g}")
             self.applied_origin = self.origin()
             self.app._show_page("controller")
             self.app._set_status("T и L применены. Выполните автоподбор и расчёт опыта.")
@@ -411,7 +411,7 @@ class IdentificationPage(ttk.Frame):
             return None
         p = self.applied_origin["parameters"]
         try:
-            matches = np.allclose([float(self.app.absorber_form.time_constant.get()), float(self.app.absorber_form.delay.get())],
+            matches = np.allclose([float(self.app.absorber.absorber_form.time_constant.get()), float(self.app.absorber.absorber_form.delay.get())],
                                   [p["time_constant"], p["delay"]], rtol=1e-10, atol=1e-12)
         except ValueError:
             return None

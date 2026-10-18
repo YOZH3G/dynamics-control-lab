@@ -91,7 +91,7 @@ class ExportPanel:
         if not selected:
             return
         try:
-            path = write_csv(selected, self.app.last_calculation)
+            path = write_csv(selected, self.app.absorber.last_calculation)
         except OSError as error:
             self.app._set_status(f"Не удалось сохранить CSV: {error}", error=True)
             return
@@ -141,19 +141,19 @@ class ExportPanel:
         )
         if not selected:
             return
-        title = self.app.last_calculation["title"]
+        title = self.app.absorber.last_calculation["title"]
         try:
-            self.app._draw_calculation_result(self.app.last_calculation)
+            self.app.absorber._draw_calculation_result(self.app.absorber.last_calculation)
             self.app.disturbance_canvas.draw()
             self.app.response_canvas.draw()
-            self.app._mark_result_stale()
+            self.app.absorber._mark_result_stale()
             path = writer(
-                selected, self.app.last_calculation, title, self.app.last_calculation["lesson"],
-                self.app.last_calculation["evaluation"], self.app.assignment_panel.student_name.get(),
-                self.app.assignment_panel.student_conclusion.get(),
+                selected, self.app.absorber.last_calculation, title, self.app.absorber.last_calculation["lesson"],
+                self.app.absorber.last_calculation["evaluation"], self.app.absorber.assignment_panel.student_name.get(),
+                self.app.absorber.assignment_panel.student_conclusion.get(),
                 (self.app.disturbance_axis.figure, self.app.response_axis.figure),
-                prediction=self.app.last_calculation["prediction"],
-                comparison_runs=self.app.comparison_page.runs,
+                prediction=self.app.absorber.last_calculation["prediction"],
+                comparison_runs=self.app.absorber.comparison_page.runs,
             )
         except OSError as error:
             self.app._set_status(
@@ -165,5 +165,5 @@ class ExportPanel:
         self.app._set_status(f"{format_name.upper()}-отчёт сохранён")
 
     def build_protocol_text(self):
-        title = self.app.last_calculation["title"]
-        return build_protocol(self.app.last_calculation, title)
+        title = self.app.absorber.last_calculation["title"]
+        return build_protocol(self.app.absorber.last_calculation, title)

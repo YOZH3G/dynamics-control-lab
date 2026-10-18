@@ -12,7 +12,7 @@ class AssignmentPanel:
         self.app = app
         self.assignment_tolerance_percent = 5.0
         self.assignment_absolute_tolerance = 1e-6
-        self.current_lesson = app.scenario_library.scenarios[0]["lesson"]
+        self.current_lesson = app.absorber.scenario_library.scenarios[0]["lesson"]
         self.assignment_attempts = 0
         self.assignment_evaluation = None
         self.learning_mode = tk.BooleanVar(value=False)
@@ -135,7 +135,7 @@ class AssignmentPanel:
             if enabled
             else "Включите режим задания и заполните прогноз до расчёта."
         )
-        self.app.calculate_button_text.set("Проверить прогноз" if enabled else "Рассчитать")
+        self.app.absorber.calculate_button_text.set("Проверить прогноз" if enabled else "Рассчитать")
 
     def update_summary(self):
         lesson = self.current_lesson
@@ -150,17 +150,17 @@ class AssignmentPanel:
         steps = ("Задание", "Параметры опыта", "Регулятор", "Результаты", "Сравнение", "Отчёт")
         if not self.learning_mode.get():
             self.learning_route.set("Свободный доступ ко всем разделам. Включите режим для маршрута.")
-            if hasattr(self.app, "route_stage"):
-                self.app.route_stage.set("Учебный маршрут")
-                self.app.route_button.configure(state="normal")
+            if hasattr(self.app.absorber, "route_stage"):
+                self.app.absorber.route_stage.set("Учебный маршрут")
+                self.app.absorber.route_button.configure(state="normal")
             return
         index = self.learning_step - 1
         self.learning_route.set(" → ".join(f"[{i + 1}] {text}" if i == index else text
                                           for i, text in enumerate(steps)))
-        if hasattr(self.app, "route_stage"):
+        if hasattr(self.app.absorber, "route_stage"):
             next_step = " → " + steps[index + 1] if index < 5 else ""
-            self.app.route_stage.set(f"{self.learning_step}/6: {steps[index]}{next_step}")
-            self.app.route_button.configure(state="normal" if index < 5 else "disabled")
+            self.app.absorber.route_stage.set(f"{self.learning_step}/6: {steps[index]}{next_step}")
+            self.app.absorber.route_button.configure(state="normal" if index < 5 else "disabled")
 
     def advance_step(self):
         if not self.learning_mode.get():
@@ -210,7 +210,7 @@ class AssignmentPanel:
             outcome,
             self.assignment_tolerance_percent,
             lesson=self.current_lesson,
-            controller=self.app.last_calculation["controller"] if self.app.last_calculation is not None else None,
+            controller=self.app.absorber.last_calculation["controller"] if self.app.absorber.last_calculation is not None else None,
             steady_absolute_tolerance=self.assignment_absolute_tolerance,
         )
         self.assignment_attempts += 1

@@ -88,10 +88,10 @@ class AbsorberForm:
         def apply_values(values):
             self.model_values = values
             self.setpoint.set(self.app._format_number(self.current_baseline() * 100))
-            self.app._mark_result_stale()
+            self.app.absorber._mark_result_stale()
             self.draw_control_diagram()
-            if self.app.last_calculation is None:
-                self.app._draw_static_charts()
+            if self.app.absorber.last_calculation is None:
+                self.app.absorber._draw_static_charts()
             self.app._set_status("Параметры модели обновлены")
 
         self.model_dialog = ModelParametersDialog(
@@ -373,9 +373,9 @@ class AbsorberForm:
 
         self.setpoint.set(self.app._format_number(self.current_baseline() * 100))
         self.draw_control_diagram()
-        self.app._mark_result_stale()
-        if self.app.last_calculation is None:
-            self.app._draw_static_charts()
+        self.app.absorber._mark_result_stale()
+        if self.app.absorber.last_calculation is None:
+            self.app.absorber._draw_static_charts()
 
     def current_baseline(self):
         return float(absorption_balance(**self.model_values)["xog" if self.chain == LEAN_GAS else "xna"])
@@ -402,7 +402,7 @@ class AbsorberForm:
         self.tuning_summary.set(f"Автоподбор {controller_type} готов к запуску.")
         self.update_controller_entry_states()
         if hasattr(self.app, "disturbance_axis") and _event is not None:
-            self.app._mark_result_stale()
+            self.app.absorber._mark_result_stale()
             self.app._set_status("Тип регулятора изменён — выполните расчёт")
 
     def update_controller_entry_states(self):
@@ -428,8 +428,8 @@ class AbsorberForm:
 
     def set_controller_mode(self, enabled):
         self.controller_enabled.set(enabled)
-        if self.app.last_calculation is None:
-            self.app.settling_time_label.set("Длительность регулирования (±5%)" if enabled
+        if self.app.absorber.last_calculation is None:
+            self.app.absorber.settling_time_label.set("Длительность регулирования (±5%)" if enabled
                                          else "Длительность установления (±5%)")
         self.controller_off_button.configure(
             style="Segment.TButton" if enabled else "SelectedSegment.TButton"
@@ -440,9 +440,9 @@ class AbsorberForm:
         self.update_controller_entry_states()
         self.controller_error.set("")
         if hasattr(self.app, "disturbance_axis"):
-            self.app._mark_result_stale()
-            if self.app.last_calculation is None:
-                self.app._draw_static_charts()
+            self.app.absorber._mark_result_stale()
+            if self.app.absorber.last_calculation is None:
+                self.app.absorber._draw_static_charts()
             self.app._set_status("Режим управления изменён — выполните расчёт")
 
     def auto_tune_controller(self):
@@ -546,8 +546,8 @@ class AbsorberForm:
         self.set_entry_state(self.component_entry, self.component_enabled.get(), self.component_value)
         self.set_entry_state(self.flow_entry, self.flow_enabled.get(), self.flow_value)
         enabled = self.component_enabled.get() or self.flow_enabled.get()
-        self.app.calculate_button.configure(state="normal" if enabled else "disabled")
-        self.app.calculation_hint.set("" if enabled else "Включите хотя бы одно возмущение")
+        self.app.absorber.calculate_button.configure(state="normal" if enabled else "disabled")
+        self.app.absorber.calculation_hint.set("" if enabled else "Включите хотя бы одно возмущение")
         self.clear_errors()
         self.draw_control_diagram()
 
@@ -713,23 +713,23 @@ class AbsorberForm:
                 return
             converted.append(str(Decimal(variable.get().strip().replace(",", ".")).scaleb(2 if units == "percent" else -2)))
         sensitivity = None
-        if self.app.analysis_panel.sensitivity_parameter.get() in ("Возмущение состава", "Возмущение расхода"):
+        if self.app.absorber.analysis_panel.sensitivity_parameter.get() in ("Возмущение состава", "Возмущение расхода"):
             try:
-                self.app.analysis_panel.parse_sensitivity_values()
+                self.app.absorber.analysis_panel.parse_sensitivity_values()
             except ValueError as problem:
                 self.disturbance_units.set("%" if self._disturbance_units == "percent" else "Доля")
-                self.app.analysis_panel.sensitivity_summary.set(str(problem))
+                self.app.absorber.analysis_panel.sensitivity_summary.set(str(problem))
                 return
             sensitivity = "; ".join(str(Decimal(item.strip().replace(",", ".")).scaleb(
-                2 if units == "percent" else -2)) for item in self.app.analysis_panel.sensitivity_values.get().replace("\n", ";").split(";"))
+                2 if units == "percent" else -2)) for item in self.app.absorber.analysis_panel.sensitivity_values.get().replace("\n", ";").split(";"))
         self._changing_units = True
         try:
             self.set_disturbance_units(units)
             if sensitivity is not None:
-                self.app.analysis_panel.sensitivity_values.set(sensitivity)
+                self.app.absorber.analysis_panel.sensitivity_values.set(sensitivity)
             for variable, value in zip((self.component_value, self.flow_value), converted):
                 variable.set(value)
         finally:
             self._changing_units = False
-        self.app._mark_result_stale()
+        self.app.absorber._mark_result_stale()
         self.draw_control_diagram()

@@ -110,7 +110,7 @@ class ResponsePage(ObjectPage):
         if getattr(self.app, "current_page", None) != self.kind:
             return
         app, d = self.app, self.description
-        app._remove_controller_axis(); app.analysis_panel.remove_map_colorbar(); app.analysis_panel.clear_map_click_callback()
+        app._remove_controller_axis(); app.absorber.analysis_panel.remove_map_colorbar(); app.absorber.analysis_panel.clear_map_click_callback()
         app._style_axis(app.disturbance_axis, "Время, с", f"{d.input_info[0]}, {d.input_info[1]}")
         app._style_axis(app.response_axis, "Время, с", f"{d.state_info[d.output_state][0]}, {d.unit}")
         view = self.view.get()

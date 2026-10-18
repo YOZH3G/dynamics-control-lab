@@ -123,7 +123,7 @@ class HeaterPage(ObjectPage):
         if getattr(self.app, "current_page", None) != "heater":
             return
         app = self.app
-        app._remove_controller_axis(); app.analysis_panel.remove_map_colorbar(); app.analysis_panel.clear_map_click_callback()
+        app._remove_controller_axis(); app.absorber.analysis_panel.remove_map_colorbar(); app.absorber.analysis_panel.clear_map_click_callback()
         app._style_axis(app.disturbance_axis, "Время, с", "Мощность, кВт")
         app._style_axis(app.response_axis, "Время, с", "Температура, °C")
         view = self.view.get()

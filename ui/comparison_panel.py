@@ -126,14 +126,14 @@ class ComparisonPanel:
         actions.columnconfigure((0, 1, 2, 3), weight=1)
         export_menu = tk.Menu(actions, tearoff=False)
         for label, command in (("CSV выбранных", self.export_csv),
-                               ("PNG выбранных", self.app.export_panel.export_graphs_png),
+                               ("PNG выбранных", self.app.absorber.export_panel.export_graphs_png),
                                ("HTML всех опытов", self.save_html_report),
                                ("PDF всех опытов", self.save_pdf_report)):
             export_menu.add_command(label=label, command=command)
         ttk.Menubutton(actions, text="Экспорт", menu=export_menu).grid(row=1, column=3, sticky="ew", padx=3, pady=3)
 
     def add_current(self):
-        if self.app.last_calculation is None:
+        if self.app.absorber.last_calculation is None:
             self.app._set_status("Сначала выполните расчёт", error=True)
             return
         if len(self.runs) >= MAX_COMPARISON_RUNS:
@@ -143,12 +143,12 @@ class ComparisonPanel:
             )
             return
         self.counter += 1
-        scenario_name = self.app.last_calculation["title"]
+        scenario_name = self.app.absorber.last_calculation["title"]
         name = f"Опыт {self.counter}: {scenario_name}"
         run = build_comparison_run(
-            self.app.last_calculation,
+            self.app.absorber.last_calculation,
             name,
-            self.app.last_calculation["input_state"],
+            self.app.absorber.last_calculation["input_state"],
         )
         run["id"] = f"run-{self.counter}"
         self.runs.append(run)
@@ -346,12 +346,12 @@ class ComparisonPanel:
             self.app._set_status("В этом опыте нет сохранённых параметров формы", error=True)
             return
         try:
-            self.app._restore_input_state(input_state)
-            self.app.identification_page.applied_origin = copy.deepcopy(run.get("experiment_origin"))
+            self.app.absorber._restore_input_state(input_state)
+            self.app.absorber.identification_page.applied_origin = copy.deepcopy(run.get("experiment_origin"))
         except (KeyError, TypeError, ValueError) as error:
             self.app._set_status(f"Не удалось вернуть параметры: {error}", error=True)
             return
-        self.app.active_scenario.set(f"Восстановлен: {run['name']}.")
+        self.app.absorber.active_scenario.set(f"Восстановлен: {run['name']}.")
         self.app.topbar_context.set(f"Параметры опыта «{run['name']}» возвращены в форму")
         self.app._set_status("Параметры опыта возвращены — при необходимости измените их и рассчитайте")
         self.app._show_page("disturbances")

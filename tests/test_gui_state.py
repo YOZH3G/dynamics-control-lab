@@ -94,7 +94,7 @@ class GuiStateTests(unittest.TestCase):
         app, root = self.app, self.root
         root.deiconify(); app._show_page("identification"); root.update()
         page = app.pages["identification"]
-        entry = next(widget for widget in app.identification_page.winfo_children()
+        entry = next(widget for widget in app.absorber.identification_page.winfo_children()
                      if isinstance(widget, main.ttk.Entry))
         entry.focus_force(); root.update()
         page.canvas.yview_moveto(.3); root.update()
@@ -112,7 +112,7 @@ class GuiStateTests(unittest.TestCase):
         app.root.after_cancel(app._autosave_job)
         app._save_autosave()
         original = app.autosave_path.read_bytes()
-        app.assignment_panel.student_conclusion.set("Повторная запись")
+        app.absorber.assignment_panel.student_conclusion.set("Повторная запись")
         with patch("main.write_session", side_effect=OSError("Disk unavailable")):
             app._autosave_tick()
             app._finish_autosave(wait=True)
@@ -140,7 +140,7 @@ class GuiStateTests(unittest.TestCase):
                 ticks = []
                 app.root.after(0, lambda: ticks.append(True)); app.root.update()
                 self.assertTrue(ticks)
-                app.assignment_panel.student_conclusion.set("Изменено во время записи")
+                app.absorber.assignment_panel.student_conclusion.set("Изменено во время записи")
                 release.set(); app._finish_autosave(wait=True)
             app._save_autosave()
             _, _, restored = read_laboratory_session(app.autosave_path)
@@ -191,7 +191,7 @@ class GuiStateTests(unittest.TestCase):
             scroll.assert_called_once_with(1, "units")
         event = SimpleNamespace(widget=self.root, width=1366, height=900)
         app._adapt_window(event)
-        with patch.object(app.comparison_page.table, "configure") as table:
+        with patch.object(app.absorber.comparison_page.table, "configure") as table:
             app._adapt_window(event); table.assert_not_called()
 
     def test_identification_quality_is_visible_saved_and_checked(self):
@@ -214,16 +214,16 @@ class GuiStateTests(unittest.TestCase):
         self.assertIn("RMSE отклика", path.read_text(encoding="utf-8"))
 
     def prepare_absorber_errors(self):
-        app, page = self.app, self.app.identification_page
+        app, page = self.app, self.app.absorber.identification_page
         app._show_page("identification")
         page.load_path(Path("data/identification_step.csv"))
         page.metadata["input_role"].set("η, доля"); page.metadata["output_role"].set("Xна, доля")
         page.calculate(); self.wait_for_task()
-        app.absorber_form.chain = RICH_ABSORBENT
-        app.absorber_form.controller_enabled.set(True); app.absorber_form.controller_type.set("PI")
-        app.absorber_form.setpoint.set("30.5"); app.absorber_form.control_limit.set("20")
-        app.absorber_form.simulation_duration.set("100"); app.absorber_form.time_constant.set("8"); app.absorber_form.delay.set("0")
-        app.absorber_form.component_enabled.set(False); app.absorber_form.flow_enabled.set(False)
+        app.absorber.absorber_form.chain = RICH_ABSORBENT
+        app.absorber.absorber_form.controller_enabled.set(True); app.absorber.absorber_form.controller_type.set("PI")
+        app.absorber.absorber_form.setpoint.set("30.5"); app.absorber.absorber_form.control_limit.set("20")
+        app.absorber.absorber_form.simulation_duration.set("100"); app.absorber.absorber_form.time_constant.set("8"); app.absorber.absorber_form.delay.set("0")
+        app.absorber.absorber_form.component_enabled.set(False); app.absorber.absorber_form.flow_enabled.set(False)
         for key, value in dict(k_errors="0;20", t_errors="0", l_errors="0").items():
             page.absorber_sensitivity.fields[key].set(value)
         app._show_page("identification")
@@ -233,7 +233,7 @@ class GuiStateTests(unittest.TestCase):
         import functools
         from app import identification
         from app.exporting import write_experiment_report
-        app, page = self.app, self.app.identification_page
+        app, page = self.app, self.app.absorber.identification_page
         app._show_page("identification")
         page.load_path(Path("data/identification_step.csv"))
         self.assertEqual(str(page.uncertainty_button["state"]), "disabled")
@@ -303,7 +303,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertTrue(page.result_current)
         self.assertIn("Снимок прежних", s.summary.get())
         s.fields["iae"].set(snapshot["absorber_sensitivity"]["fields"]["iae"])
-        self.app.absorber_form.time_constant.set("9")
+        self.app.absorber.absorber_form.time_constant.set("9")
         self.assertTrue(s.capture()["stale"])
         stale_report = Path(self.directory.name)/"stale.html"
         write_experiment_report(stale_report, page.capture(), "html")
@@ -396,7 +396,7 @@ class GuiStateTests(unittest.TestCase):
         from app.session_store import validate_laboratory
         from unittest.mock import patch
         import copy
-        self.app._calculate()
+        self.app.absorber._calculate()
         self.wait_for_task()
         expected = copy.deepcopy(self.app.model_results["absorber"])
         self.app._show_page("model_result")
@@ -410,7 +410,7 @@ class GuiStateTests(unittest.TestCase):
         saved = self.app._capture_laboratory()
         validated = validate_laboratory(saved)
         self.app.model_results.clear()
-        self.app._restore_laboratory(validated, self.app.last_calculation)
+        self.app._restore_laboratory(validated, self.app.absorber.last_calculation)
         self.assertEqual(self.app.model_results["absorber"], expected)
         self.assertEqual(self.app.current_page, "model_result")
         old = copy.deepcopy(saved)
@@ -418,7 +418,7 @@ class GuiStateTests(unittest.TestCase):
         old["page"] = "disturbances"
         old.pop("selected_model")
         old = validate_laboratory(old)
-        self.app._restore_laboratory(old, self.app.last_calculation)
+        self.app._restore_laboratory(old, self.app.absorber.last_calculation)
         self.assertEqual(self.app.model_results["absorber"], expected)
         damaged = copy.deepcopy(saved)
         damaged["model_results"]["absorber"]["units"]["xog"] = "м"
@@ -508,7 +508,7 @@ class GuiStateTests(unittest.TestCase):
             saved = self.app._capture_laboratory()
             from app.session_store import validate_laboratory
             validated = validate_laboratory(saved)
-            self.app._restore_laboratory(validated, self.app.last_calculation)
+            self.app._restore_laboratory(validated, self.app.absorber.last_calculation)
             self.assertEqual(self.app.selected_model.get(), "Тестовый нагреватель")
             self.assertEqual(self.app.model_results["test_heater"], result)
             self.app.selected_model.set("Абсорбер")
@@ -532,7 +532,7 @@ class GuiStateTests(unittest.TestCase):
         self.root.withdraw()
         with patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry), \
                 patch("ui.model_result_page.MODELS", registry), \
-                patch.object(main, "ScenarioStore", return_value=self.store):
+                patch("ui.absorber_workspace.ScenarioStore", return_value=self.store):
             self.app = app = main.DynamicsControlApp(self.root)
             page = app.probe_page
             self.assertIs(app.object_pages["probe"], page)
@@ -555,7 +555,7 @@ class GuiStateTests(unittest.TestCase):
             expected = page.result
             page.result = None
             app.model_results.pop("test_heater", None)
-            app._restore_laboratory(laboratory, app.last_calculation)
+            app._restore_laboratory(laboratory, app.absorber.last_calculation)
             self.assertEqual(page.result, expected)
             self.assertEqual(app.current_page, "probe")
             self.assertEqual(app.model_results["test_heater"], registry.result("test_heater", expected))
@@ -581,7 +581,7 @@ class GuiStateTests(unittest.TestCase):
             # A separate registry per app, as on another computer where the object was never opened.
             registry = ModelRegistry(MODELS.all())
             patches = [patch.object(main, "MODELS", registry), patch("app.session_store.MODELS", registry),
-                       patch("ui.model_result_page.MODELS", registry), patch.object(main, "ScenarioStore", return_value=self.store)]
+                       patch("ui.model_result_page.MODELS", registry), patch("ui.absorber_workspace.ScenarioStore", return_value=self.store)]
             if not autosave:
                 patches.append(patch.object(main.DynamicsControlApp, "_restore_autosave", lambda self: None))
             for item in patches:
@@ -734,7 +734,7 @@ class GuiStateTests(unittest.TestCase):
         from app.tank_exporting import write_tank_report
         from app.tank_state import validate_tank_state
         app, page = self.app, self.app.tank_page
-        absorber = copy.deepcopy(app._capture_input_state())
+        absorber = copy.deepcopy(app.absorber._capture_input_state())
         app._show_page("tank")
         page.generate(); self.wait_for_task()
         self.assertGreater(len(page.rows),17)
@@ -784,7 +784,7 @@ class GuiStateTests(unittest.TestCase):
             app._open_comparison_session()
         self.assertEqual(page.capture(),snapshot)
         self.assertEqual(app.selected_model.get(),"Бак")
-        self.assertEqual(app._capture_input_state(),absorber)
+        self.assertEqual(app.absorber._capture_input_state(),absorber)
         for fmt in ("csv","html","pdf"):
             output=Path(self.directory.name)/f"tank.{fmt}"
             write_tank_report(output,snapshot,fmt)
@@ -807,14 +807,14 @@ class GuiStateTests(unittest.TestCase):
         np.testing.assert_allclose(page.arrays(),arrays,rtol=1e-12)
         app._show_page("disturbances")
         self.assertEqual(app.selected_model.get(),"Абсорбер")
-        self.assertEqual(app._capture_input_state(),absorber)
+        self.assertEqual(app.absorber._capture_input_state(),absorber)
 
     def test_complete_experiment_workflow_restores_snapshots_and_exports_reports(self):
         import csv
         import json
         import numpy as np
         from app.exporting import write_experiment_report, write_experiment_csv
-        app, page = self.app, self.app.identification_page
+        app, page = self.app, self.app.absorber.identification_page
         page.load_path(Path(main.__file__).parent / "data" / "identification_step.csv")
         page.metadata["input_role"].set("η, доля")
         page.metadata["output_role"].set("Xна, доля")
@@ -881,7 +881,7 @@ class GuiStateTests(unittest.TestCase):
     def test_experiment_session_restores_without_source_and_old_sessions_clear_it(self):
         import json
         import numpy as np
-        app, page = self.app, self.app.identification_page
+        app, page = self.app, self.app.absorber.identification_page
         source = Path(self.directory.name) / "source.csv"
         source.write_bytes((Path(main.__file__).parent / "data" / "identification_step.csv").read_bytes())
         page.load_path(source)
@@ -916,7 +916,7 @@ class GuiStateTests(unittest.TestCase):
 
     def test_corrupt_experiment_session_does_not_replace_the_successful_fit(self):
         import json
-        app, page = self.app, self.app.identification_page
+        app, page = self.app, self.app.absorber.identification_page
         page.load_path(Path(main.__file__).parent / "data" / "identification_step.csv")
         page.calculate()
         self.wait_for_task()
@@ -933,7 +933,7 @@ class GuiStateTests(unittest.TestCase):
         import json
         import numpy as np
         app = self.app
-        original = app.last_calculation["final_response"].copy()
+        original = app.absorber.last_calculation["final_response"].copy()
         laboratory = app._capture_laboratory()
         laboratory["scenario"]["name"] = "Сценарий другого компьютера"
         laboratory["scenario_name"] = laboratory["scenario"]["name"]
@@ -944,65 +944,65 @@ class GuiStateTests(unittest.TestCase):
                                     "laboratory": laboratory}), encoding="utf-8")
         runs, counter, restored = read_laboratory_session(path)
         result = restore_calculation(restored["last_calculation"])
-        app.comparison_page.runs, app.comparison_page.counter = runs, counter
+        app.absorber.comparison_page.runs, app.absorber.comparison_page.counter = runs, counter
         app._restore_laboratory(restored, result)
-        self.assertIn("Сценарий другого компьютера", app.scenario_library.by_name)
-        self.assertEqual(app.scenario_library.selected.get(), "Сценарий другого компьютера")
-        self.assertIsNone(app.last_prediction)
-        np.testing.assert_array_equal(app.last_calculation["final_response"], original)
+        self.assertIn("Сценарий другого компьютера", app.absorber.scenario_library.by_name)
+        self.assertEqual(app.absorber.scenario_library.selected.get(), "Сценарий другого компьютера")
+        self.assertIsNone(app.absorber.last_prediction)
+        np.testing.assert_array_equal(app.absorber.last_calculation["final_response"], original)
 
     def test_new_window_automatically_restores_saved_laboratory(self):
         import numpy as np
-        original = self.app.last_calculation["final_response"].copy()
-        self.app.assignment_panel.student_conclusion.set("Восстановлено после запуска")
-        self.app.absorber_form.component_value.set("-")
+        original = self.app.absorber.last_calculation["final_response"].copy()
+        self.app.absorber.assignment_panel.student_conclusion.set("Восстановлено после запуска")
+        self.app.absorber.absorber_form.component_value.set("-")
         self.app._close_application()
         self.root = tk.Tk()
         self.root.withdraw()
-        with patch.object(main, "ScenarioStore", return_value=self.store):
+        with patch("ui.absorber_workspace.ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
-        self.assertEqual(self.app.assignment_panel.student_conclusion.get(), "Восстановлено после запуска")
-        self.assertEqual(self.app.absorber_form.component_value.get(), "-")
-        np.testing.assert_array_equal(self.app.last_calculation["final_response"], original)
+        self.assertEqual(self.app.absorber.assignment_panel.student_conclusion.get(), "Восстановлено после запуска")
+        self.assertEqual(self.app.absorber.absorber_form.component_value.get(), "-")
+        np.testing.assert_array_equal(self.app.absorber.last_calculation["final_response"], original)
         self.assertIn("автосохранения", self.app.status_text.get())
 
     def test_full_laboratory_restores_draft_result_and_assignment_without_using_attempt(self):
         import numpy as np
         app = self.app
-        app.assignment_panel.current_lesson["attempt_limit"] = 3
-        app.assignment_panel.assignment_enabled.set(True)
-        app.assignment_panel.predicted_direction.set("Уменьшится")
-        app.assignment_panel.predicted_fastest.set("Без сравнения")
-        app.assignment_panel.predicted_correction.set("Регулятор выключен")
-        app.assignment_panel.predicted_steady.set("26.27")
-        app._calculate()
+        app.absorber.assignment_panel.current_lesson["attempt_limit"] = 3
+        app.absorber.assignment_panel.assignment_enabled.set(True)
+        app.absorber.assignment_panel.predicted_direction.set("Уменьшится")
+        app.absorber.assignment_panel.predicted_fastest.set("Без сравнения")
+        app.absorber.assignment_panel.predicted_correction.set("Регулятор выключен")
+        app.absorber.assignment_panel.predicted_steady.set("26.27")
+        app.absorber._calculate()
         self.wait_for_task()
-        original = app.last_calculation
-        app.comparison_page.add_current()
-        app.assignment_panel.learning_mode.set(True)
-        app.assignment_panel.learning_step = 4
-        app.assignment_panel.student_name.set("Студент")
-        app.assignment_panel.student_conclusion.set("Проверен баланс")
-        app.absorber_form.component_value.set("-")
-        app.assignment_panel.predicted_steady.set("26,")
+        original = app.absorber.last_calculation
+        app.absorber.comparison_page.add_current()
+        app.absorber.assignment_panel.learning_mode.set(True)
+        app.absorber.assignment_panel.learning_step = 4
+        app.absorber.assignment_panel.student_name.set("Студент")
+        app.absorber.assignment_panel.student_conclusion.set("Проверен баланс")
+        app.absorber.absorber_form.component_value.set("-")
+        app.absorber.assignment_panel.predicted_steady.set("26,")
         path = Path(self.directory.name) / "laboratory.json"
-        write_session(path, app.comparison_page.runs, app.comparison_page.counter, app._capture_laboratory())
+        write_session(path, app.absorber.comparison_page.runs, app.absorber.comparison_page.counter, app._capture_laboratory())
         runs, counter, laboratory = read_laboratory_session(path)
         result = restore_calculation(laboratory["last_calculation"])
-        app._reset()
-        app.assignment_panel.student_name.set("")
-        app.assignment_panel.assignment_attempts = 0
-        app.comparison_page.runs, app.comparison_page.counter = runs, counter
+        app.absorber._reset()
+        app.absorber.assignment_panel.student_name.set("")
+        app.absorber.assignment_panel.assignment_attempts = 0
+        app.absorber.comparison_page.runs, app.absorber.comparison_page.counter = runs, counter
         app._restore_laboratory(laboratory, result)
-        np.testing.assert_array_equal(app.last_calculation["final_response"], original["final_response"])
-        np.testing.assert_array_equal(app.last_calculation["time"], original["time"])
-        self.assertEqual(app.absorber_form.component_value.get(), "-")
-        self.assertEqual(app.assignment_panel.predicted_steady.get(), "26,")
-        self.assertEqual(app.assignment_panel.assignment_attempts, 1)
-        self.assertEqual(app.assignment_panel.assignment_evaluation, original["evaluation"])
-        self.assertEqual(app.assignment_panel.learning_step, 4)
-        self.assertEqual(app.assignment_panel.student_name.get(), "Студент")
-        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Проверен баланс")
+        np.testing.assert_array_equal(app.absorber.last_calculation["final_response"], original["final_response"])
+        np.testing.assert_array_equal(app.absorber.last_calculation["time"], original["time"])
+        self.assertEqual(app.absorber.absorber_form.component_value.get(), "-")
+        self.assertEqual(app.absorber.assignment_panel.predicted_steady.get(), "26,")
+        self.assertEqual(app.absorber.assignment_panel.assignment_attempts, 1)
+        self.assertEqual(app.absorber.assignment_panel.assignment_evaluation, original["evaluation"])
+        self.assertEqual(app.absorber.assignment_panel.learning_step, 4)
+        self.assertEqual(app.absorber.assignment_panel.student_name.get(), "Студент")
+        self.assertEqual(app.absorber.assignment_panel.student_conclusion.get(), "Проверен баланс")
 
     def test_broken_nested_import_does_not_change_current_work(self):
         import json
@@ -1012,42 +1012,42 @@ class GuiStateTests(unittest.TestCase):
         payload = json.loads(path.read_text(encoding="utf-8"))
         del payload["laboratory"]["last_calculation"]["input_state"]["delay"]
         path.write_text(json.dumps(payload), encoding="utf-8")
-        result, form = app.last_calculation, app._capture_input_state()
+        result, form = app.absorber.last_calculation, app.absorber._capture_input_state()
         with patch.object(main.filedialog, "askopenfilename", return_value=str(path)):
             app._open_comparison_session()
-        self.assertIs(app.last_calculation, result)
-        self.assertEqual(app._capture_input_state(), form)
+        self.assertIs(app.absorber.last_calculation, result)
+        self.assertEqual(app.absorber._capture_input_state(), form)
 
     def test_autosave_recovers_backup_and_preserves_corrupt_copy(self):
         app = self.app
-        app.assignment_panel.student_conclusion.set("Первая корректная копия")
+        app.absorber.assignment_panel.student_conclusion.set("Первая корректная копия")
         app._save_autosave()
-        app.assignment_panel.student_conclusion.set("Вторая копия")
+        app.absorber.assignment_panel.student_conclusion.set("Вторая копия")
         app._save_autosave()
         app.autosave_path.write_text("broken", encoding="utf-8")
-        app.assignment_panel.student_conclusion.set("")
+        app.absorber.assignment_panel.student_conclusion.set("")
         app._restore_autosave()
-        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Первая корректная копия")
+        self.assertEqual(app.absorber.assignment_panel.student_conclusion.get(), "Первая корректная копия")
         self.assertEqual(app.autosave_path.with_suffix(".json.corrupt").read_text(encoding="utf-8"), "broken")
         self.assertIn("резервного", app.status_text.get())
         app.autosave_path.unlink()
-        app.assignment_panel.student_conclusion.set("")
+        app.absorber.assignment_panel.student_conclusion.set("")
         app._restore_autosave()
-        self.assertEqual(app.assignment_panel.student_conclusion.get(), "Первая корректная копия")
+        self.assertEqual(app.absorber.assignment_panel.student_conclusion.get(), "Первая корректная копия")
 
     def test_map_selection_explains_independent_observations(self):
         from types import SimpleNamespace
-        result = self.app.last_calculation
-        self.app.analysis_panel.map_data = controller_setting_map(
+        result = self.app.absorber.last_calculation
+        self.app.absorber.analysis_panel.map_data = controller_setting_map(
             result["chain"], result["model_values"], result["component_fraction"],
             result["flow_fraction"], result["dynamics"], "PI", (6,), (2,), 1, 0.8,
         )
         self.app._show_page("tuning_map")
-        self.app.analysis_panel.select_map_cell(SimpleNamespace(inaxes=self.app.disturbance_axis, xdata=0, ydata=0))
-        description = self.app.analysis_panel.map_selection_summary.get()
+        self.app.absorber.analysis_panel.select_map_cell(SimpleNamespace(inaxes=self.app.disturbance_axis, xdata=0, ydata=0))
+        description = self.app.absorber.analysis_panel.map_selection_summary.get()
         self.assertIn("Насыщение η", description)
         self.assertIn("Вывод относится только к длительности этого опыта", description)
-        self.assertEqual(self.app.analysis_panel.map_selection, (0, 0))
+        self.assertEqual(self.app.absorber.analysis_panel.map_selection, (0, 0))
 
     def setUp(self):
         try:
@@ -1057,10 +1057,10 @@ class GuiStateTests(unittest.TestCase):
         self.root.withdraw()
         self.directory = tempfile.TemporaryDirectory()
         self.store = ScenarioStore(Path(self.directory.name) / "scenarios.json")
-        with patch.object(main, "ScenarioStore", return_value=self.store):
+        with patch("ui.absorber_workspace.ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
-        self.app._apply_scenario_data(self.app.scenario_library.scenarios[1])
-        self.app._calculate()
+        self.app.absorber._apply_scenario_data(self.app.absorber.scenario_library.scenarios[1])
+        self.app.absorber._calculate()
         self.wait_for_task()
         self.root.update_idletasks()
 
@@ -1074,11 +1074,11 @@ class GuiStateTests(unittest.TestCase):
     def test_background_map_keeps_tk_timer_responsive_and_can_be_cancelled(self):
         app = self.app
         app._show_page("tuning_map")
-        original = app.last_calculation
+        original = app.absorber.last_calculation
         ticks = []
         self.root.after(0, lambda: ticks.append(True))
-        app.analysis_panel.map_grid_size.set("15")
-        app.analysis_panel.calculate_map()
+        app.absorber.analysis_panel.map_grid_size.set("15")
+        app.absorber.analysis_panel.calculate_map()
         task = app._task
         self.root.update()
         self.assertTrue(ticks)
@@ -1086,60 +1086,60 @@ class GuiStateTests(unittest.TestCase):
         app._cancel_task()
         task.thread.join(2)
         self.assertFalse(task.thread.is_alive())
-        self.assertIsNone(app.analysis_panel.map_data)
-        self.assertIs(app.last_calculation, original)
+        self.assertIsNone(app.absorber.analysis_panel.map_data)
+        self.assertIs(app.absorber.last_calculation, original)
 
     def test_changed_form_cancels_work_but_equivalent_number_does_not(self):
         from threading import Event
         release = Event()
-        original = self.app.last_calculation
+        original = self.app.absorber.last_calculation
         def slow_result(cancel, progress):
             release.wait(2)
             return original
         self.app._start_task("Проверка", slow_result, lambda result: self.fail("Stale result applied"))
         task = self.app._task
-        self.app.absorber_form.component_value.set(self.app.absorber_form.component_value.get().replace(".", ",") + "00")
+        self.app.absorber.absorber_form.component_value.set(self.app.absorber.absorber_form.component_value.get().replace(".", ",") + "00")
         self.assertIs(self.app._task, task)
-        self.app.absorber_form.component_value.set("0.2")
+        self.app.absorber.absorber_form.component_value.set("0.2")
         self.assertIsNone(self.app._task)
         self.assertTrue(task.cancel.is_set())
         release.set()
         task.thread.join(2)
-        self.assertIs(self.app.last_calculation, original)
+        self.assertIs(self.app.absorber.last_calculation, original)
 
     def test_cancelled_prediction_does_not_consume_attempt_and_clear_is_undoable(self):
         app = self.app
-        app.assignment_panel.current_lesson["attempt_limit"] = 3
-        app.assignment_panel.assignment_enabled.set(True)
-        app.assignment_panel.predicted_direction.set("Уменьшится")
-        app.assignment_panel.predicted_fastest.set("Без сравнения")
-        app.assignment_panel.predicted_correction.set("Регулятор выключен")
-        app.assignment_panel.predicted_steady.set("26.27")
-        original = app.last_calculation
-        app._calculate()
+        app.absorber.assignment_panel.current_lesson["attempt_limit"] = 3
+        app.absorber.assignment_panel.assignment_enabled.set(True)
+        app.absorber.assignment_panel.predicted_direction.set("Уменьшится")
+        app.absorber.assignment_panel.predicted_fastest.set("Без сравнения")
+        app.absorber.assignment_panel.predicted_correction.set("Регулятор выключен")
+        app.absorber.assignment_panel.predicted_steady.set("26.27")
+        original = app.absorber.last_calculation
+        app.absorber._calculate()
         app._cancel_task()
-        self.assertEqual(app.assignment_panel.assignment_attempts, 0)
-        self.assertIs(app.last_calculation, original)
-        app._reset()
-        self.assertIsNone(app.last_calculation)
-        app.comparison_page.counter = 7
-        app._undo_clear_experiment()
-        self.assertIs(app.last_calculation, original)
-        self.assertEqual(app.assignment_panel.assignment_attempts, 0)
-        self.assertEqual(app.comparison_page.counter, 7)
+        self.assertEqual(app.absorber.assignment_panel.assignment_attempts, 0)
+        self.assertIs(app.absorber.last_calculation, original)
+        app.absorber._reset()
+        self.assertIsNone(app.absorber.last_calculation)
+        app.absorber.comparison_page.counter = 7
+        app.absorber._undo_clear_experiment()
+        self.assertIs(app.absorber.last_calculation, original)
+        self.assertEqual(app.absorber.assignment_panel.assignment_attempts, 0)
+        self.assertEqual(app.absorber.comparison_page.counter, 7)
 
     def test_defaults_restore_disabled_controller_and_preserve_variant_title(self):
         app = self.app
         caption = "Применён: Снижение состава на 15% · вариант 5."
-        app.active_scenario.set(caption)
-        app.absorber_form.controller_type.set("PID")
-        app.absorber_form.proportional_gain.set("19")
-        app.absorber_form.integral_time.set("3")
-        app._restore_experiment_defaults()
-        self.assertEqual(app.absorber_form.controller_type.get(), "PI")
-        self.assertEqual(app.absorber_form.proportional_gain.get(), "2")
-        self.assertEqual(app.absorber_form.integral_time.get(), "20")
-        self.assertEqual(app.active_scenario.get(), caption)
+        app.absorber.active_scenario.set(caption)
+        app.absorber.absorber_form.controller_type.set("PID")
+        app.absorber.absorber_form.proportional_gain.set("19")
+        app.absorber.absorber_form.integral_time.set("3")
+        app.absorber._restore_experiment_defaults()
+        self.assertEqual(app.absorber.absorber_form.controller_type.get(), "PI")
+        self.assertEqual(app.absorber.absorber_form.proportional_gain.get(), "2")
+        self.assertEqual(app.absorber.absorber_form.integral_time.get(), "20")
+        self.assertEqual(app.absorber.active_scenario.get(), caption)
 
     def test_new_task_wins_even_when_old_worker_finishes_later(self):
         from threading import Event
@@ -1156,11 +1156,11 @@ class GuiStateTests(unittest.TestCase):
 
     def test_chart_layout_preserves_result_and_restores_saved_mode(self):
         app = self.app
-        original = app.last_calculation
+        original = app.absorber.last_calculation
         app._set_chart_mode("response")
         self.root.update_idletasks()
         self.assertEqual(len(app.chart_panes.panes()), 1)
-        self.assertIs(app.last_calculation, original)
+        self.assertIs(app.absorber.last_calculation, original)
         app._set_chart_mode("both")
         self.root.update_idletasks()
         self.assertEqual(len(app.chart_panes.panes()), 2)
@@ -1168,7 +1168,7 @@ class GuiStateTests(unittest.TestCase):
         app._close_application()
         self.root = tk.Tk()
         self.root.withdraw()
-        with patch.object(main, "ScenarioStore", return_value=self.store):
+        with patch("ui.absorber_workspace.ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
         self.root.update_idletasks()
         self.assertEqual(self.app.chart_mode, "response")
@@ -1181,7 +1181,7 @@ class GuiStateTests(unittest.TestCase):
         app._close_application()
         self.root = tk.Tk()
         self.root.withdraw()
-        with patch.object(main, "ScenarioStore", return_value=self.store):
+        with patch("ui.absorber_workspace.ScenarioStore", return_value=self.store):
             self.app = main.DynamicsControlApp(self.root)
         self.root.update_idletasks()
         self.assertEqual(self.app.current_page, "comparison")
@@ -1200,33 +1200,33 @@ class GuiStateTests(unittest.TestCase):
         app._show_page("controller")
         self.root.update_idletasks()
         self.assertAlmostEqual(page.canvas.yview()[0], expected, places=2)
-        app._calculate()
+        app.absorber._calculate()
         self.wait_for_task()
         self.assertEqual(app.current_page, "controller")
 
     def test_comparison_selection_retains_curve_colour_and_has_wide_table(self):
         app = self.app
-        app.comparison_page.add_current()
-        app.comparison_page.add_current()
+        app.absorber.comparison_page.add_current()
+        app.absorber.comparison_page.add_current()
         self.root.update_idletasks()
-        second = app.comparison_page.runs[1]
-        app.comparison_page.table.selection_set(second["id"])
-        app.comparison_page.draw()
-        self.assertEqual(app.disturbance_axis.lines[0].get_color(), app.comparison_page.color(second))
-        self.assertEqual(str(app.comparison_page.table.tag_configure(second["id"], "foreground")), app.comparison_page.color(second))
+        second = app.absorber.comparison_page.runs[1]
+        app.absorber.comparison_page.table.selection_set(second["id"])
+        app.absorber.comparison_page.draw()
+        self.assertEqual(app.disturbance_axis.lines[0].get_color(), app.absorber.comparison_page.color(second))
+        self.assertEqual(str(app.absorber.comparison_page.table.tag_configure(second["id"], "foreground")), app.absorber.comparison_page.color(second))
         self.root.deiconify()
         self.root.geometry("1366x768")
         self.root.update()
-        self.assertGreater(app.comparison_page.table.winfo_width(), 545)
+        self.assertGreater(app.absorber.comparison_page.table.winfo_width(), 545)
         self.assertGreater(app.chart_panes.winfo_height(), 250)
 
     def test_renaming_run_redraws_comparison_and_reports_status(self):
         app = self.app
-        app.comparison_page.add_current()
-        run = app.comparison_page.runs[0]
-        app.comparison_page.table.selection_set(run["id"])
-        with patch.object(app.comparison_page, "ask_name", return_value="Новый опыт: проверка"):
-            app.comparison_page.rename()
+        app.absorber.comparison_page.add_current()
+        run = app.absorber.comparison_page.runs[0]
+        app.absorber.comparison_page.table.selection_set(run["id"])
+        with patch.object(app.absorber.comparison_page, "ask_name", return_value="Новый опыт: проверка"):
+            app.absorber.comparison_page.rename()
         self.assertEqual(run["name"], "Новый опыт: проверка")
         self.assertEqual(app.disturbance_axis.lines[0].get_label(), "Новый опыт")
         self.assertEqual(app.status_text.get(), "Название опыта изменено")
@@ -1234,25 +1234,25 @@ class GuiStateTests(unittest.TestCase):
     def test_units_preserve_precision_snapshot_and_physical_result(self):
         import numpy as np
         app = self.app
-        app.absorber_form.component_value.set("0.12345678901234567")
-        app._calculate()
+        app.absorber.absorber_form.component_value.set("0.12345678901234567")
+        app.absorber._calculate()
         self.wait_for_task()
-        original = app.last_calculation["final_response"].copy()
-        app.absorber_form.disturbance_units.set("%")
-        app.absorber_form.switch_disturbance_units()
-        self.assertEqual(app.absorber_form.component_value.get(), "12.345678901234567")
-        self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
-        app._calculate()
+        original = app.absorber.last_calculation["final_response"].copy()
+        app.absorber.absorber_form.disturbance_units.set("%")
+        app.absorber.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber.absorber_form.component_value.get(), "12.345678901234567")
+        self.assertNotIn("Параметры изменены", app.absorber.export_panel.export_summary.get())
+        app.absorber._calculate()
         self.wait_for_task()
-        np.testing.assert_array_equal(app.last_calculation["final_response"], original)
-        saved = app._capture_input_state()
-        app.absorber_form.disturbance_units.set("Доля")
-        app.absorber_form.switch_disturbance_units()
-        self.assertEqual(app.absorber_form.component_value.get(), "0.12345678901234567")
-        app._restore_input_state(saved, preserve_result=True)
-        self.assertEqual(app.absorber_form._disturbance_units, "percent")
-        self.assertEqual(app.absorber_form.component_value.get(), "12.345678901234567")
-        self.assertNotIn("Параметры изменены", app.export_panel.export_summary.get())
+        np.testing.assert_array_equal(app.absorber.last_calculation["final_response"], original)
+        saved = app.absorber._capture_input_state()
+        app.absorber.absorber_form.disturbance_units.set("Доля")
+        app.absorber.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber.absorber_form.component_value.get(), "0.12345678901234567")
+        app.absorber._restore_input_state(saved, preserve_result=True)
+        self.assertEqual(app.absorber.absorber_form._disturbance_units, "percent")
+        self.assertEqual(app.absorber.absorber_form.component_value.get(), "12.345678901234567")
+        self.assertNotIn("Параметры изменены", app.absorber.export_panel.export_summary.get())
 
     def test_unit_switch_preserves_running_task_and_rejects_invalid_draft(self):
         from threading import Event
@@ -1260,37 +1260,37 @@ class GuiStateTests(unittest.TestCase):
         app = self.app
         app._start_task("test", lambda cancel, progress: release.wait(2), lambda result: None)
         task = app._task
-        app.absorber_form.disturbance_units.set("%")
-        app.absorber_form.switch_disturbance_units()
+        app.absorber.absorber_form.disturbance_units.set("%")
+        app.absorber.absorber_form.switch_disturbance_units()
         self.assertIs(app._task, task)
-        app.absorber_form.component_value.set("-")
-        app.absorber_form.disturbance_units.set("Доля")
-        app.absorber_form.switch_disturbance_units()
-        self.assertEqual(app.absorber_form._disturbance_units, "percent")
-        self.assertEqual(app.absorber_form.component_value.get(), "-")
-        self.assertTrue(app.absorber_form.component_error.get())
+        app.absorber.absorber_form.component_value.set("-")
+        app.absorber.absorber_form.disturbance_units.set("Доля")
+        app.absorber.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber.absorber_form._disturbance_units, "percent")
+        self.assertEqual(app.absorber.absorber_form.component_value.get(), "-")
+        self.assertTrue(app.absorber.absorber_form.component_error.get())
         release.set()
 
     def test_sensitivity_units_change_without_changing_values(self):
         app = self.app
-        app.analysis_panel.sensitivity_parameter.set("Возмущение состава")
-        app.analysis_panel.sensitivity_values.set("0,1; 0,25")
-        self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
-        app.absorber_form.disturbance_units.set("%")
-        app.absorber_form.switch_disturbance_units()
-        self.assertEqual(app.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
-        self.assertEqual(app.analysis_panel.sensitivity_values.get(), "1E+1; 25")
+        app.absorber.analysis_panel.sensitivity_parameter.set("Возмущение состава")
+        app.absorber.analysis_panel.sensitivity_values.set("0,1; 0,25")
+        self.assertEqual(app.absorber.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
+        app.absorber.absorber_form.disturbance_units.set("%")
+        app.absorber.absorber_form.switch_disturbance_units()
+        self.assertEqual(app.absorber.analysis_panel.parse_sensitivity_values(), (0.1, 0.25))
+        self.assertEqual(app.absorber.analysis_panel.sensitivity_values.get(), "1E+1; 25")
 
     def test_learning_route_keeps_free_navigation_and_visits_all_steps(self):
         app = self.app
-        app.assignment_panel.learning_mode.set(False)
+        app.absorber.assignment_panel.learning_mode.set(False)
         for page in ("scenarios", "disturbances", "controller", "results", "comparison", "export"):
-            app.assignment_panel.advance_step()
+            app.absorber.assignment_panel.advance_step()
             self.assertEqual(app.current_page, page)
-            self.assertIn(f"{app.assignment_panel.learning_step}/6", app.route_stage.get())
+            self.assertIn(f"{app.absorber.assignment_panel.learning_step}/6", app.absorber.route_stage.get())
         app._show_page("sensitivity")
         self.assertEqual(app.current_page, "sensitivity")
-        self.assertEqual(app.assignment_panel.learning_step, 6)
+        self.assertEqual(app.absorber.assignment_panel.learning_step, 6)
         self.assertEqual(list(app.nav_buttons)[:3], ["scenarios", "disturbances", "dynamics"])
 
     def tearDown(self):
@@ -1305,29 +1305,29 @@ class GuiStateTests(unittest.TestCase):
             self.directory.cleanup()
 
     def test_numeric_equivalence_and_inactive_fields_do_not_make_result_stale(self):
-        self.app.absorber_form.component_value.set("-0,1500")
-        self.app.absorber_form.integral_time.set("999")
-        self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.absorber_form.component_value.set("-0.2")
-        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.absorber_form.component_value.set("-0.15")
-        self.assertNotIn("Параметры изменены", self.app.export_panel.export_summary.get())
+        self.app.absorber.absorber_form.component_value.set("-0,1500")
+        self.app.absorber.absorber_form.integral_time.set("999")
+        self.assertNotIn("Параметры изменены", self.app.absorber.export_panel.export_summary.get())
+        self.app.absorber.absorber_form.component_value.set("-0.2")
+        self.assertIn("Параметры изменены", self.app.absorber.export_panel.export_summary.get())
+        self.app.absorber.absorber_form.component_value.set("-0.15")
+        self.assertNotIn("Параметры изменены", self.app.absorber.export_panel.export_summary.get())
 
     def test_chain_and_controller_changes_keep_the_same_calculation_snapshot(self):
-        result = self.app.last_calculation
+        result = self.app.absorber.last_calculation
         snapshot = copy.deepcopy(result["input_state"])
-        self.app.absorber_form.select_chain("lean_gas")
-        self.assertIs(self.app.last_calculation, result)
+        self.app.absorber.absorber_form.select_chain("lean_gas")
+        self.assertIs(self.app.absorber.last_calculation, result)
         self.assertEqual(result["chain"], RICH_ABSORBENT)
-        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.absorber_form.set_controller_mode(True)
-        self.assertIs(self.app.last_calculation, result)
+        self.assertIn("Параметры изменены", self.app.absorber.export_panel.export_summary.get())
+        self.app.absorber.absorber_form.set_controller_mode(True)
+        self.assertIs(self.app.absorber.last_calculation, result)
         self.assertEqual(result["input_state"], snapshot)
-        self.app.comparison_page.add_current()
-        self.assertEqual(self.app.comparison_page.runs[-1]["input_state"], snapshot)
+        self.app.absorber.comparison_page.add_current()
+        self.assertEqual(self.app.absorber.comparison_page.runs[-1]["input_state"], snapshot)
 
     def test_teacher_quality_requirements_and_absolute_tolerance_survive_editor_round_trip(self):
-        scenario = copy.deepcopy(self.app.scenario_library.scenarios[1])
+        scenario = copy.deepcopy(self.app.absorber.scenario_library.scenarios[1])
         scenario["name"] = "Quality assignment"
         scenario["steady_absolute_tolerance"] = 2e-6
         scenario["lesson"]["controller_target"] = dict(type="PI", require_settled=True,
@@ -1352,21 +1352,21 @@ class GuiStateTests(unittest.TestCase):
     def test_sensor_settings_round_trip_and_teacher_dependent_fields(self):
         import numpy as np
         app = self.app
-        app.absorber_form.set_controller_mode(True)
-        app.absorber_form.controller_type.set("PID")
-        app.absorber_form.extension_values["noise_std"].set("0,05")
-        app.absorber_form.extension_values["noise_seed"].set("2026")
-        app.absorber_form.extension_values["derivative_filter_time"].set("0,5")
-        app.absorber_form.extension_values["actuator_time_constant"].set("2")
-        app.absorber_form.extension_values["actuator_rate_limit"].set("2")
-        app._calculate()
+        app.absorber.absorber_form.set_controller_mode(True)
+        app.absorber.absorber_form.controller_type.set("PID")
+        app.absorber.absorber_form.extension_values["noise_std"].set("0,05")
+        app.absorber.absorber_form.extension_values["noise_seed"].set("2026")
+        app.absorber.absorber_form.extension_values["derivative_filter_time"].set("0,5")
+        app.absorber.absorber_form.extension_values["actuator_time_constant"].set("2")
+        app.absorber.absorber_form.extension_values["actuator_rate_limit"].set("2")
+        app.absorber._calculate()
         self.wait_for_task()
-        result = app.last_calculation
+        result = app.absorber.last_calculation
         restored = restore_calculation(app._capture_laboratory()["last_calculation"])
         for key in ("control", "commanded_control", "measurement", "final_response"):
             np.testing.assert_array_equal(restored[key], result[key])
-        app.absorber_form.extension_values["actuator_time_constant"].set("3")
-        self.assertIn("Параметры изменены", app.export_panel.export_summary.get())
+        app.absorber.absorber_form.extension_values["actuator_time_constant"].set("3")
+        self.assertIn("Параметры изменены", app.absorber.export_panel.export_summary.get())
         editor = ScenarioEditorDialog(self.root, self.store, lambda *_: None,
                                       lambda *_: None, lambda: None, main.BACKGROUND)
         try:
@@ -1387,8 +1387,8 @@ class GuiStateTests(unittest.TestCase):
         self.root.geometry("1366x1000+0+0")
         self.root.tk.call("tk", "scaling", 96 / 72)
         self.root.update()
-        app.absorber_form.set_controller_mode(True)
-        app._calculate()
+        app.absorber.absorber_form.set_controller_mode(True)
+        app.absorber._calculate()
         self.wait_for_task()
         app._set_chart_mode("both")
         deadline = time.monotonic() + .4
@@ -1403,31 +1403,31 @@ class GuiStateTests(unittest.TestCase):
         from types import SimpleNamespace
         import numpy as np
         app = self.app
-        page = app.identification_page
+        page = app.absorber.identification_page
         page.load_path(Path(main.__file__).parent / "data" / "identification_step.csv")
         app._show_page("identification")
         page.calculate()
         self.wait_for_task()
         self.assertIsNotNone(page.result)
         self.assertAlmostEqual(page.result["time_constant"], 8, delta=.08)
-        original_model = app.absorber_form.model_values.copy()
-        original_gain = app.absorber_form.proportional_gain.get()
+        original_model = app.absorber.absorber_form.model_values.copy()
+        original_gain = app.absorber.absorber_form.proportional_gain.get()
         app.time_cursor.move(SimpleNamespace(inaxes=app.response_axis, xdata=20))
         self.assertTrue(all(readout.get().startswith("t = 20 с") for readout in app.chart_readouts))
         np.testing.assert_array_equal(page.result["residual"], page.result["output"] - page.result["model"])
         page.apply()
-        self.assertEqual(app.absorber_form.model_values, original_model)
-        self.assertEqual(app.absorber_form.proportional_gain.get(), original_gain)
-        self.assertAlmostEqual(float(app.absorber_form.delay.get()), 2, delta=.2)
+        self.assertEqual(app.absorber.absorber_form.model_values, original_model)
+        self.assertEqual(app.absorber.absorber_form.proportional_gain.get(), original_gain)
+        self.assertAlmostEqual(float(app.absorber.absorber_form.delay.get()), 2, delta=.2)
         self.assertEqual(app.current_page, "controller")
-        app.absorber_form.set_controller_mode(True)
-        app._calculate()
+        app.absorber.absorber_form.set_controller_mode(True)
+        app.absorber._calculate()
         self.wait_for_task()
         for mode, ylabel, axes in (("Только ошибка", "Ошибка e(t), п.п.", 1),
                                   ("Только управление", "η, %", 1),
                                   ("Ошибка и управление", "Ошибка e(t), п.п.", 2)):
             app.controller_signal_mode.set(mode)
-            app._redraw_signal_mode()
+            app.absorber._redraw_signal_mode()
             self.assertEqual(app.disturbance_axis.get_ylabel(), ylabel)
             self.assertEqual(len(app.disturbance_axis.figure.axes), axes)
         before = page.result
@@ -1441,7 +1441,7 @@ class GuiStateTests(unittest.TestCase):
         from app.identification import identify_step
         from test_identification import experiment
         app = self.app
-        page = app.identification_page
+        page = app.absorber.identification_page
         result = dict(identify_step(*experiment()), source="example.csv", columns=("t", "u", "y"), units=("с", "как в файле", "как в файле"))
         app._show_page("identification")
         release = Event()
@@ -1456,7 +1456,7 @@ class GuiStateTests(unittest.TestCase):
         self.assertIs(page.result, result)
         self.assertEqual(app.primary_chart_title.get(), title)
         app._show_page("identification")
-        app.comparison_page.add_current()
+        app.absorber.comparison_page.add_current()
         self.assertEqual(app.current_page, "comparison")
         self.assertTrue(app._charts_show_comparison)
         release.clear()
@@ -1470,16 +1470,16 @@ class GuiStateTests(unittest.TestCase):
         task.thread.join(2)
 
     def test_model_edits_keep_the_calculation_and_report_uses_its_graphs(self):
-        result = self.app.last_calculation
-        self.app.absorber_form.open_model_parameters()
-        self.app.absorber_form.model_dialog._variables["eta"].set("70")
-        self.app.absorber_form.model_dialog._apply_values()
-        self.assertIs(self.app.last_calculation, result)
-        self.assertIn("Параметры изменены", self.app.export_panel.export_summary.get())
-        self.app.comparison_page.add_current()
-        self.assertIn("Теория", self.app.comparison_page.details.get())
+        result = self.app.absorber.last_calculation
+        self.app.absorber.absorber_form.open_model_parameters()
+        self.app.absorber.absorber_form.model_dialog._variables["eta"].set("70")
+        self.app.absorber.absorber_form.model_dialog._apply_values()
+        self.assertIs(self.app.absorber.last_calculation, result)
+        self.assertIn("Параметры изменены", self.app.absorber.export_panel.export_summary.get())
+        self.app.absorber.comparison_page.add_current()
+        self.assertIn("Теория", self.app.absorber.comparison_page.details.get())
         captured = []
-        self.app.last_prediction = {"steady": 0.9}
+        self.app.absorber.last_prediction = {"steady": 0.9}
 
         def writer(path, exported, title, lesson, evaluation, *args, **kwargs):
             captured.append(exported)
@@ -1490,7 +1490,7 @@ class GuiStateTests(unittest.TestCase):
             return Path(path)
 
         with patch.object(main.filedialog, "asksaveasfilename", return_value=str(Path(self.directory.name) / "report.html")):
-            self.app.export_panel.save_lab_report("html", writer)
+            self.app.absorber.export_panel.save_lab_report("html", writer)
         self.assertEqual(captured, [result])
 
 
