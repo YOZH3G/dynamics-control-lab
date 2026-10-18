@@ -321,7 +321,7 @@ class AbsorberWorkspace:
             metric_label.grid(row=row, column=0, sticky="w", pady=3)
             if key in metric_help:
                 self.app._attach_tooltip(metric_label, metric_help[key])
-            # Long values such as "не применимо без регулятора" wrap instead of widening the sidebar.
+            # Long values such as "неприменимо без регулятора" wrap instead of widening the sidebar.
             ttk.Label(metrics, textvariable=self.transition_values[key], style="ResultValue.TLabel", wraplength=140,
                       justify="right").grid(row=row, column=1, sticky="e", pady=3, padx=(8, 0))
         metrics.columnconfigure(0, weight=1)
@@ -695,9 +695,9 @@ class AbsorberWorkspace:
         self.transition_values["static_error"].set(self.app._format_signed_number(metrics["static_error"] * 100) + " п.п.")
         self.transition_values["final_error"].set(self.app._format_signed_number(metrics["final_error"] * 100) + " п.п.")
         self.transition_values["settling_status"].set(metrics["settling_status"])
-        self.transition_values["iae"].set("не применимо без регулятора" if metrics["iae"] is None
+        self.transition_values["iae"].set("неприменимо без регулятора" if metrics["iae"] is None
                                           else self.app._format_number(metrics["iae"] * 100) + " п.п.·с")
-        self.transition_values["saturation_duration"].set("не применимо без регулятора" if metrics["saturation_duration"] is None
+        self.transition_values["saturation_duration"].set("неприменимо без регулятора" if metrics["saturation_duration"] is None
                                                           else self.app._format_number(metrics["saturation_duration"]) + " с")
 
     def _reset(self):

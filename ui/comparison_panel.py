@@ -372,7 +372,7 @@ class ComparisonPanel:
             return
         runs = self.selected_runs()
         def metric(value, unit, scale=100):
-            return "не применимо" if value is None else self.app._format_number(value * scale) + unit
+            return "неприменимо" if value is None else self.app._format_number(value * scale) + unit
         from app.identification import format_experiment_origin
         self.details.set("\n\n".join(
             f"{run['name']}: {run.get('settling_status', 'нет данных')}.\n"

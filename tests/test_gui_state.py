@@ -1077,7 +1077,7 @@ class GuiStateTests(unittest.TestCase):
         app.absorber._calculate()
         self.wait_for_task()
         self.root.update_idletasks()
-        self.assertEqual(app.absorber.transition_values["iae"].get(), "не применимо без регулятора")
+        self.assertEqual(app.absorber.transition_values["iae"].get(), "неприменимо без регулятора")
         metrics = next(card for card in app.page_contents["results"].winfo_children()
                        if any(isinstance(w, tk.Widget) and "text" in w.keys() and w.cget("text") == "Показатели переходного процесса"
                               for w in card.winfo_children()))

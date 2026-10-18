@@ -11,7 +11,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 from matplotlib.figure import Figure
 
 APP_NAME = "Лаборатория динамики и управления"
-APP_VERSION = "1.15.0"
+APP_VERSION = "1.15.1"
 
 from app.comparison import MAX_COMPARISON_RUNS
 from app.model_contract import copy_data

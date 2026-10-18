@@ -255,9 +255,9 @@ def build_protocol(result, title):
         ("Теоретическая ошибка", f"{metrics['static_error'] * 100:+.8g} п.п."),
         ("Ошибка в конце опыта", f"{metrics['final_error'] * 100:+.8g} п.п."),
         ("Полуширина полосы ±5%", f"{metrics['settling_tolerance'] * 100:.8g} п.п."),
-        ("IAE относительно задания", "не применимо без регулятора" if metrics["iae"] is None
+        ("IAE относительно задания", "неприменимо без регулятора" if metrics["iae"] is None
          else f"{metrics['iae'] * 100:.8g} п.п.·с"),
-        ("Длительность насыщения η", "не применимо без регулятора" if metrics["saturation_duration"] is None
+        ("Длительность насыщения η", "неприменимо без регулятора" if metrics["saturation_duration"] is None
          else f"{metrics['saturation_duration']:.8g} с"),
     ]
     if controller is not None:
@@ -550,7 +550,7 @@ def _format_optional_number(value):
 
 
 def _scaled_metric(value, unit, scale=100):
-    return "не применимо" if value is None else _format_number(value * scale) + unit
+    return "неприменимо" if value is None else _format_number(value * scale) + unit
 
 
 def _format_number(value):
