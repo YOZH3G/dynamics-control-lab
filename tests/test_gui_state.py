@@ -1071,6 +1071,21 @@ class GuiStateTests(unittest.TestCase):
             self.root.update()
             time.sleep(0.005)
 
+    def test_open_loop_metric_values_do_not_widen_sidebar(self):
+        app = self.app
+        app.absorber.absorber_form.set_controller_mode(False)
+        app.absorber._calculate()
+        self.wait_for_task()
+        self.root.update_idletasks()
+        self.assertEqual(app.absorber.transition_values["iae"].get(), "не применимо без регулятора")
+        metrics = next(card for card in app.page_contents["results"].winfo_children()
+                       if any(isinstance(w, tk.Widget) and "text" in w.keys() and w.cget("text") == "Показатели переходного процесса"
+                              for w in card.winfo_children()))
+        # Names wrap at a fixed width; a long value must wrap too, or the whole sidebar page scrolls sideways.
+        names = [w.winfo_reqwidth() for w in metrics.grid_slaves(column=0) if int(w.grid_info()["row"]) > 0]
+        values = [w.winfo_reqwidth() for w in metrics.grid_slaves(column=1) if int(w.grid_info()["row"]) > 0]
+        self.assertLessEqual(max(values), max(names))
+
     def test_background_map_keeps_tk_timer_responsive_and_can_be_cancelled(self):
         app = self.app
         app._show_page("tuning_map")

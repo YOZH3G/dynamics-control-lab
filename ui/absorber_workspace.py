@@ -321,9 +321,9 @@ class AbsorberWorkspace:
             metric_label.grid(row=row, column=0, sticky="w", pady=3)
             if key in metric_help:
                 self.app._attach_tooltip(metric_label, metric_help[key])
-            ttk.Label(metrics, textvariable=self.transition_values[key], style="ResultValue.TLabel").grid(
-                row=row, column=1, sticky="e", pady=3, padx=(8, 0)
-            )
+            # Long values such as "не применимо без регулятора" wrap instead of widening the sidebar.
+            ttk.Label(metrics, textvariable=self.transition_values[key], style="ResultValue.TLabel", wraplength=140,
+                      justify="right").grid(row=row, column=1, sticky="e", pady=3, padx=(8, 0))
         metrics.columnconfigure(0, weight=1)
 
         comparison_action = self.app._card(parent, 3, padding=(14, 12))
